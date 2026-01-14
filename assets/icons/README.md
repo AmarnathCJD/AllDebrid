@@ -1,0 +1,2 @@
+# Icons
+App icons folder

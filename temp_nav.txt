@@ -1,0 +1,109 @@
+  Widget _buildBottomNav() {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppTheme.surfaceColor,
+        border: Border(top: BorderSide(color: AppTheme.borderColor)),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _NavBarItem(
+                icon: Icons.dashboard_outlined,
+                activeIcon: Icons.dashboard,
+                label: 'Home',
+                isSelected: false,
+                onTap: () => Navigator.pop(context),
+              ),
+              _NavBarItem(
+                icon: Icons.link_outlined,
+                activeIcon: Icons.link,
+                label: 'Magnets',
+                isSelected: false,
+                onTap: () => Navigator.pop(context),
+              ),
+              _NavBarItem(
+                icon: Icons.download_outlined,
+                activeIcon: Icons.download,
+                label: 'Downloads',
+                isSelected: false,
+                onTap: () => Navigator.pop(context),
+              ),
+              _NavBarItem(
+                icon: Icons.folder_outlined,
+                activeIcon: Icons.folder,
+                label: 'Files',
+                isSelected: false,
+                onTap: () => Navigator.pop(context),
+              ),
+              _NavBarItem(
+                icon: Icons.settings_outlined,
+                activeIcon: Icons.settings,
+                label: 'Settings',
+                isSelected: false,
+                onTap: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavBarItem extends StatelessWidget {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _NavBarItem({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isSelected ? AppTheme.primaryColor : AppTheme.textMuted;
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? AppTheme.primaryColor.withOpacity(0.15)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              isSelected ? activeIcon : icon,
+              size: 22,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
