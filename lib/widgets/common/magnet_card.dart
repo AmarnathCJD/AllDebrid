@@ -47,7 +47,7 @@ class MagnetCard extends StatelessWidget {
                       width: 28,
                       height: 28,
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.15),
+                        color: statusColor.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Icon(statusIcon, size: 14, color: statusColor),
@@ -82,7 +82,7 @@ class MagnetCard extends StatelessWidget {
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 4, vertical: 1),
                                 decoration: BoxDecoration(
-                                  color: statusColor.withOpacity(0.15),
+                                  color: statusColor.withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(3),
                                 ),
                                 child: Text(
@@ -241,7 +241,7 @@ class _ActionBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: color.withOpacity(0.1),
+      color: color.withValues(alpha: 0.1),
       borderRadius: BorderRadius.circular(4),
       child: InkWell(
         onTap: onTap,

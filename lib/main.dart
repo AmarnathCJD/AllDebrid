@@ -93,6 +93,16 @@ class AllDebridApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => DownloadProvider(downloadService: downloadService),
         ),
+
+        // Trending Provider
+        ChangeNotifierProvider(
+          create: (_) => TrendingProvider(),
+        ),
+
+        // KDrama Provider
+        ChangeNotifierProvider(
+          create: (_) => KDramaProvider(),
+        ),
       ],
       child: Builder(builder: (context) {
         return MaterialApp(
@@ -126,7 +136,7 @@ class _AppWrapperState extends State<AppWrapper> {
 
   Future<void> _initializeApp() async {
     // Show splash for minimum time
-    await Future.delayed(const Duration(seconds: 2));
+    await Future.delayed(const Duration(microseconds: 500));
 
     // Initialize app
     if (mounted) {

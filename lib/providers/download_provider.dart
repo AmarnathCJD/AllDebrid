@@ -12,7 +12,7 @@ class DownloadProvider extends ChangeNotifier {
   StreamSubscription<List<Download>>? _subscription;
 
   DownloadProvider({required DownloadService downloadService})
-    : _downloadService = downloadService;
+      : _downloadService = downloadService;
 
   // Getters
   List<Download> get downloads => _downloads;
@@ -100,6 +100,10 @@ class DownloadProvider extends ChangeNotifier {
   /// Resume all downloads
   Future<void> resumeAll() async {
     await _downloadService.resumeAll();
+  }
+
+  Future<void> removeAll() async {
+    await _downloadService.removeAll();
   }
 
   @override

@@ -5,7 +5,7 @@ import '../theme/app_theme.dart';
 import 'home/home_screen.dart';
 import 'magnets/magnets_screen.dart';
 import 'downloads/downloads_screen.dart';
-import 'files/file_browser_screen.dart';
+import 'torrents/torrent_search_screen.dart';
 import 'settings/settings_screen.dart';
 
 class MainNavigation extends StatefulWidget {
@@ -18,9 +18,9 @@ class MainNavigation extends StatefulWidget {
 class _MainNavigationState extends State<MainNavigation> {
   final _screens = const [
     HomeScreen(),
+    TorrentSearchScreen(),
     MagnetsScreen(),
     DownloadsScreen(),
-    FileBrowserScreen(),
     SettingsScreen(),
   ];
 
@@ -54,23 +54,23 @@ class _MainNavigationState extends State<MainNavigation> {
                   onTap: () => navigationProvider.setIndex(0),
                 ),
                 _NavBarItem(
+                  icon: Icons.search_outlined,
+                  activeIcon: Icons.search,
+                  label: 'Search',
+                  isSelected: currentIndex == 1,
+                  onTap: () => navigationProvider.setIndex(1),
+                ),
+                _NavBarItem(
                   icon: Icons.link_outlined,
                   activeIcon: Icons.link,
                   label: 'Magnets',
-                  isSelected: currentIndex == 1,
-                  onTap: () => navigationProvider.setIndex(1),
+                  isSelected: currentIndex == 2,
+                  onTap: () => navigationProvider.setIndex(2),
                 ),
                 _NavBarItem(
                   icon: Icons.download_outlined,
                   activeIcon: Icons.download,
                   label: 'Downloads',
-                  isSelected: currentIndex == 2,
-                  onTap: () => navigationProvider.setIndex(2),
-                ),
-                _NavBarItem(
-                  icon: Icons.folder_outlined,
-                  activeIcon: Icons.folder,
-                  label: 'Files',
                   isSelected: currentIndex == 3,
                   onTap: () => navigationProvider.setIndex(3),
                 ),
@@ -120,7 +120,7 @@ class _NavBarItem extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             decoration: BoxDecoration(
               color: isSelected
-                  ? AppTheme.primaryColor.withOpacity(0.15)
+                  ? AppTheme.primaryColor.withValues(alpha: 0.15)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(16),
             ),

@@ -113,6 +113,20 @@ class AllDebridService {
     return DelayedLink.fromJson(response.data['data']);
   }
 
+  Future<String> createZip(List<String> links) async {
+    final data = <String, dynamic>{};
+    for (int i = 0; i < links.length; i++) {
+      data['links[$i]'] = links[i];
+    }
+
+    final response = await _dio.post(
+      '/$apiVersion/link/zip',
+      data: FormData.fromMap(data),
+    );
+    _checkError(response.data);
+    return response.data['data']['link'];
+  }
+
   Future<String?> waitForDelayedLink(String delayedId,
       {Duration timeout = const Duration(minutes: 5)}) async {
     final deadline = DateTime.now().add(timeout);

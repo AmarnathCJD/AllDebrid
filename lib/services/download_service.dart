@@ -137,7 +137,9 @@ class DownloadService {
 
     final download = _downloads[idx];
 
-    if (download.isPaused || download.isFailed) {
+    if (download.isPaused ||
+        download.isFailed ||
+        download.status == DownloadStatus.cancelled) {
       download.status = DownloadStatus.downloading;
       _notifyListeners();
 
@@ -152,34 +154,86 @@ class DownloadService {
         int startByte = 0;
         if (await file.exists()) {
           startByte = await file.length();
-          download.downloadedSize = startByte;
         }
 
-        await _dio.download(
+        if (download.totalSize > 0 && startByte >= download.totalSize) {
+          download.status = DownloadStatus.completed;
+          download.downloadedSize = download.totalSize;
+          download.completedAt = DateTime.now();
+          download.speed = 0;
+          _notifyListeners();
+          await _saveDownloads();
+          return;
+        }
+
+        download.downloadedSize = startByte;
+
+        // Use ResponseType.stream to handle the data manually
+        final response = await _dio.get<ResponseBody>(
           download.url,
-          download.savePath,
           cancelToken: cancelToken,
-          deleteOnError: false,
           options: Options(
+            responseType: ResponseType.stream,
             headers: {
               'User-Agent': 'AllDebridApp/1.0',
               if (startByte > 0) 'Range': 'bytes=$startByte-',
             },
           ),
-          onReceiveProgress: (received, total) {
-            download.downloadedSize = startByte + received;
+        );
+
+        // Open file in append mode
+        final sink = file.openWrite(mode: FileMode.append);
+
+        // Pipe stream to file
+        final stream = response.data!.stream;
+
+        // Listen to stream to update progress
+        // We can't just simulate onReceiveProgress easily with pipe()
+        // So we manually listen
+        // However, pipe() is efficient. But we need progress.
+        // Let's iterate the stream.
+
+        await stream.listen(
+          (chunk) {
+            sink.add(chunk);
+
+            final received = chunk.length;
+            download.downloadedSize += received;
+
+            // Update total size if provided by headers (Content-Length)
+            // Note: Content-Length on 206 response is the PARTIAL length
+            if (download.totalSize == 0) {
+              final contentLength = response.headers.value('content-length');
+              if (contentLength != null) {
+                final partial = int.tryParse(contentLength) ?? 0;
+                if (partial > 0) {
+                  download.totalSize = startByte + partial;
+                }
+              }
+            }
 
             final now = DateTime.now();
             final elapsed = now.difference(lastUpdate).inMilliseconds;
             if (elapsed >= 500) {
               final bytesDiff = download.downloadedSize - lastBytes;
-              download.speed = ((bytesDiff * 1000) ~/ elapsed);
+              if (elapsed > 0) {
+                download.speed = ((bytesDiff * 1000) ~/ elapsed);
+              }
               lastUpdate = now;
               lastBytes = download.downloadedSize;
+              _notifyListeners();
             }
-            _notifyListeners();
           },
-        );
+          onDone: () async {
+            await sink.flush();
+            await sink.close();
+          },
+          onError: (e) async {
+            await sink.close();
+            throw e;
+          },
+          cancelOnError: true,
+        ).asFuture();
 
         download.status = DownloadStatus.completed;
         download.completedAt = DateTime.now();
@@ -213,12 +267,15 @@ class DownloadService {
       cancelToken.cancel('Cancelled by user');
     }
 
-    final file = File(download.savePath);
-    if (await file.exists()) {
-      await file.delete();
-    }
+    try {
+      final file = File(download.savePath);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (_) {}
 
     download.status = DownloadStatus.cancelled;
+    download.downloadedSize = 0;
     download.speed = 0;
     _notifyListeners();
     await _saveDownloads();
@@ -238,6 +295,14 @@ class DownloadService {
     await _saveDownloads();
   }
 
+  Future<void> removeAll() async {
+    // Create a copy to iterate
+    final List<Download> allDownloads = List.from(_downloads);
+    for (final download in allDownloads) {
+      await removeDownload(download.id);
+    }
+  }
+
   Future<void> pauseAll() async {
     for (final download in _downloads) {
       if (download.isDownloading) {
@@ -248,7 +313,7 @@ class DownloadService {
 
   Future<void> resumeAll() async {
     for (final download in _downloads) {
-      if (download.isPaused) {
+      if (download.isPaused || download.isFailed) {
         await resumeDownload(download.id);
       }
     }

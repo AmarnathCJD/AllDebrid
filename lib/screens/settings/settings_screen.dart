@@ -74,11 +74,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           decoration: BoxDecoration(
             color: AppTheme.cardColor,
             border: Border.all(
-                color: AppTheme.primaryColor.withOpacity(0.3), width: 1),
+                color: AppTheme.primaryColor.withValues(alpha: 0.3), width: 1),
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: AppTheme.primaryColor.withOpacity(0.1),
+                color: AppTheme.primaryColor.withValues(alpha: 0.1),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -93,7 +93,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   gradient: LinearGradient(
                     colors: [
                       AppTheme.primaryColor,
-                      AppTheme.primaryColor.withOpacity(0.7)
+                      AppTheme.primaryColor.withValues(alpha: 0.7)
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -101,7 +101,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: AppTheme.primaryColor.withOpacity(0.3),
+                      color: AppTheme.primaryColor.withValues(alpha: 0.3),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -130,10 +130,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: AppTheme.primaryColor.withOpacity(0.1),
+                          color: AppTheme.primaryColor.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
-                              color: AppTheme.primaryColor.withOpacity(0.2)),
+                              color:
+                                  AppTheme.primaryColor.withValues(alpha: 0.2)),
                         ),
                         child: Text(
                           'PREMIUM • ${user?.daysRemaining ?? 0} DAYS',
@@ -187,10 +188,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           decoration: BoxDecoration(
             color: AppTheme.cardColor,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.borderColor.withOpacity(0.5)),
+            border:
+                Border.all(color: AppTheme.borderColor.withValues(alpha: 0.5)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.03),
+                color: Colors.black.withValues(alpha: 0.03),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -220,7 +222,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 trailing: Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: AppTheme.primaryColor.withOpacity(0.1),
+                    color: AppTheme.primaryColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.edit_rounded,
@@ -252,10 +254,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           decoration: BoxDecoration(
             color: AppTheme.cardColor,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.borderColor.withOpacity(0.5)),
+            border:
+                Border.all(color: AppTheme.borderColor.withValues(alpha: 0.5)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.03),
+                color: Colors.black.withValues(alpha: 0.03),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -272,7 +275,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 trailing: Switch(
                   value: provider.isDarkMode,
                   onChanged: (val) => provider.toggleThemeMode(),
-                  activeColor: provider.primaryColor,
+                  activeThumbColor: provider.primaryColor,
                 ),
               ),
               _Divider(),
@@ -291,7 +294,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       border: Border.all(color: Colors.white24, width: 2),
                       boxShadow: [
                         BoxShadow(
-                            color: provider.primaryColor.withOpacity(0.4),
+                            color: provider.primaryColor.withValues(alpha: 0.4),
                             blurRadius: 8)
                       ]),
                 ),
@@ -307,10 +310,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           decoration: BoxDecoration(
             color: AppTheme.cardColor,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.borderColor.withOpacity(0.5)),
+            border:
+                Border.all(color: AppTheme.borderColor.withValues(alpha: 0.5)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.03),
+                color: Colors.black.withValues(alpha: 0.03),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -373,7 +377,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           decoration: BoxDecoration(
             color: AppTheme.cardColor,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.borderColor.withOpacity(0.5)),
+            border:
+                Border.all(color: AppTheme.borderColor.withValues(alpha: 0.5)),
           ),
           child: Column(
             children: [
@@ -411,9 +416,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 18),
           decoration: BoxDecoration(
-            color: AppTheme.errorColor.withOpacity(0.05),
+            color: AppTheme.errorColor.withValues(alpha: 0.05),
             border: Border.all(
-                color: AppTheme.errorColor.withOpacity(0.3), width: 1),
+                color: AppTheme.errorColor.withValues(alpha: 0.3), width: 1),
             borderRadius: BorderRadius.circular(16),
           ),
           child: Row(
@@ -663,7 +668,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           boxShadow: [
                             if (isSelected)
                               BoxShadow(
-                                  color: color.withOpacity(0.5), blurRadius: 10)
+                                  color: color.withValues(alpha: 0.5),
+                                  blurRadius: 10)
                           ]),
                       child: isSelected
                           ? const Icon(Icons.check,
@@ -701,7 +707,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AppTheme.errorColor.withOpacity(0.1),
+                  color: AppTheme.errorColor.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(Icons.logout_rounded,
@@ -865,7 +871,7 @@ class _Divider extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 1,
-      color: AppTheme.borderColor.withOpacity(0.5),
+      color: AppTheme.borderColor.withValues(alpha: 0.5),
     );
   }
 }

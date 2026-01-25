@@ -1,15 +1,21 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+
 import '../../theme/app_theme.dart';
 import '../../models/torrent.dart';
 import '../../services/torrent_scraper_service.dart';
+import '../../services/imdb_service.dart';
 import '../../providers/providers.dart';
-import '../../providers/navigation_provider.dart';
+
 import '../../widgets/common/common_widgets.dart';
 
 class TorrentSearchScreen extends StatefulWidget {
-  const TorrentSearchScreen({super.key});
+  final String? initialQuery;
+
+  const TorrentSearchScreen({super.key, this.initialQuery});
 
   @override
   State<TorrentSearchScreen> createState() => _TorrentSearchScreenState();
@@ -18,76 +24,121 @@ class TorrentSearchScreen extends StatefulWidget {
 class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
   final _scraperService = TorrentScraperService();
   final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
   List<TorrentEntry> _entries = [];
   List<TorrentEntry> _filteredEntries = [];
   bool _isLoading = false;
+  bool _isSearchMode = false;
   String? _error;
+  Timer? _debounceTimer;
+  String _selectedProvider = 'all';
+  bool _showScrollToTop = false;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
+
+    // Set initial query if provided
+    if (widget.initialQuery != null && widget.initialQuery!.isNotEmpty) {
+      _searchController.text = widget.initialQuery!;
+      _isSearchMode = true;
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<AppProvider>();
       final baseUrl = provider.getSetting<String>('torrent_base_url');
       if (baseUrl != null && baseUrl.isNotEmpty) {
         _scraperService.updateBaseUrl(baseUrl);
       }
-      _loadEntries();
+
+      // If we have initial query, search immediately
+      if (widget.initialQuery != null && widget.initialQuery!.isNotEmpty) {
+        _performSearch();
+      } else {
+        _loadEntries();
+      }
     });
-    _searchController.addListener(_filterEntries);
+  }
+
+  void _onScroll() {
+    if (_scrollController.offset > 300 && !_showScrollToTop) {
+      setState(() => _showScrollToTop = true);
+    } else if (_scrollController.offset <= 300 && _showScrollToTop) {
+      setState(() => _showScrollToTop = false);
+    }
   }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _searchController.dispose();
+    _scrollController.dispose();
     _scraperService.dispose();
     super.dispose();
   }
 
-  void _filterEntries() {
-    final query = _searchController.text.toLowerCase();
+  Future<void> _performSearch() async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty) return;
+
     setState(() {
-      if (query.isEmpty) {
-        _filteredEntries = _entries;
-      } else {
-        _filteredEntries = _entries.where((entry) {
-          return entry.title.toLowerCase().contains(query);
-        }).toList();
-      }
+      _isLoading = true;
+      _isSearchMode = true;
+      _error = null;
+      _entries = []; // Clear entries to show fresh results immediately
     });
+
+    try {
+      final entries = await _scraperService.search(query);
+      if (mounted) {
+        setState(() {
+          _entries = entries;
+          _applyProviderFilter();
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e
+              .toString()
+              .replaceFirst('Exception: ', '')
+              .replaceFirst('FormatException: ', '');
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _applyProviderFilter() {
+    if (_selectedProvider == 'all') {
+      _filteredEntries = _entries;
+    } else {
+      _filteredEntries = _entries.where((entry) {
+        try {
+          return entry.source == _selectedProvider;
+        } catch (e) {
+          return _selectedProvider == 'tamilmv';
+        }
+      }).toList();
+    }
   }
 
   Future<void> _loadEntries() async {
     setState(() {
       _isLoading = true;
+      _isSearchMode = false;
       _error = null;
     });
 
     try {
       final entries = await _scraperService.fetchHomepage();
       if (mounted) {
-        // Sort entries: by year (newest first), then alphabetically
-        entries.sort((a, b) {
-          final yearA = RegExp(r'\((\d{4})\)').firstMatch(a.title)?.group(1);
-          final yearB = RegExp(r'\((\d{4})\)').firstMatch(b.title)?.group(1);
-
-          // First compare by year (newest first)
-          if (yearA != null && yearB != null) {
-            final yearCompare = int.parse(yearB).compareTo(int.parse(yearA));
-            if (yearCompare != 0) return yearCompare;
-          } else if (yearA != null) {
-            return -1; // Items with year come before items without
-          } else if (yearB != null) {
-            return 1;
-          }
-
-          // If years are same (or both missing), compare alphabetically
-          return a.title.toLowerCase().compareTo(b.title.toLowerCase());
-        });
-
+        // Keep original order from TamilMV (most recent first)
         setState(() {
           _entries = entries;
-          _filteredEntries = entries;
+          _applyProviderFilter();
           _isLoading = false;
         });
       }
@@ -101,67 +152,351 @@ class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
     }
   }
 
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() {
+      _isSearchMode = false;
+    });
+    _loadEntries();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
-      appBar: AppBar(
-        title: const Text('TORRENT SEARCH'),
-        titleTextStyle: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.5,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(),
+            _buildSearchBar(),
+            _buildProviderFilter(),
+            Expanded(child: _buildBody()),
+          ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadEntries,
-          ),
-        ],
       ),
-      body: Column(
-        children: [
-          _buildSearchBar(),
-          Expanded(child: _buildBody()),
-        ],
-      ),
-      bottomNavigationBar: _buildBottomNav(),
+      floatingActionButton: _showScrollToTop
+          ? FloatingActionButton.small(
+              onPressed: () {
+                _scrollController.animateTo(
+                  0,
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeOutCubic,
+                );
+              },
+              backgroundColor: AppTheme.primaryColor,
+              child: const Icon(Icons.arrow_upward, size: 20),
+            )
+          : null,
     );
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
       decoration: BoxDecoration(
-        color: AppTheme.surfaceColor,
-        border:
-            Border(bottom: BorderSide(color: AppTheme.borderColor, width: 1)),
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: AppTheme.borderColor, width: 2),
-          borderRadius: BorderRadius.circular(8),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            AppTheme.surfaceColor.withValues(alpha: 0.8),
+            AppTheme.backgroundColor,
+          ],
         ),
-        child: TextField(
-          controller: _searchController,
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-          decoration: const InputDecoration(
-            hintText: 'Search movies...',
-            prefixIcon: Icon(Icons.search, size: 20),
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isSearchMode ? 'SEARCH RESULTS' : 'DISCOVER',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.5,
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Text(
+                      _isSearchMode
+                          ? 'Find your content'
+                          : 'Browse latest torrents',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.textMuted,
+                      ),
+                    ),
+                    if (_filteredEntries.isNotEmpty && !_isLoading) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '${_filteredEntries.length}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.primaryColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (!_isLoading)
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _isSearchMode ? _clearSearch : _loadEntries,
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.cardColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppTheme.borderColor.withValues(alpha: 0.5),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Icon(
+                    _isSearchMode ? Icons.close : Icons.refresh_rounded,
+                    size: 20,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 300.ms);
+  }
+
+  Widget _buildSearchBar() {
+    final hasText = _searchController.text.isNotEmpty;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _isLoading
+              ? null
+              : () {
+                  showSearch(
+                    context: context,
+                    delegate: _CustomSearchDelegate(
+                      entries: _entries,
+                      onSearch: (query) {
+                        _searchController.text = query;
+                        _debounceTimer?.cancel();
+                        _performSearch();
+                      },
+                      initialQuery: _searchController.text,
+                    ),
+                  );
+                },
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppTheme.cardColor,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: AppTheme.borderColor.withValues(alpha: 0.3),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppTheme.primaryColor.withValues(alpha: 0.05),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  child: Icon(
+                    Icons.search_rounded,
+                    size: 22,
+                    color: AppTheme.primaryColor,
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    hasText
+                        ? _searchController.text
+                        : 'Search movies, shows, anime...',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: hasText ? FontWeight.w500 : FontWeight.w400,
+                      color: hasText
+                          ? AppTheme.textPrimary
+                          : AppTheme.textMuted.withValues(alpha: 0.6),
+                      letterSpacing: 0.1,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (hasText)
+                  Container(
+                    margin: const EdgeInsets.only(right: 12),
+                    child: GestureDetector(
+                      onTap: () {
+                        _searchController.clear();
+                        setState(() {});
+                      },
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 20,
+                        color: AppTheme.textMuted,
+                      ),
+                    ),
+                  )
+                else
+                  Container(
+                    margin: const EdgeInsets.only(right: 12),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'TAP',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.primaryColor,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
     ).animate().fadeIn(duration: 300.ms);
   }
 
+  Widget _buildProviderFilter() {
+    final providers = [
+      {'label': 'All', 'value': 'all', 'icon': Icons.apps_rounded},
+      {'label': 'TamilMV', 'value': 'tamilmv', 'icon': Icons.movie_rounded},
+      {'label': 'CSV', 'value': 'csv', 'icon': Icons.table_chart_rounded},
+      {'label': 'Rarbg', 'value': 'rarbg', 'icon': Icons.download_rounded},
+      {'label': '1337x', 'value': '1377x', 'icon': Icons.layers_rounded},
+      {'label': 'TT', 'value': 'torrenttip', 'icon': Icons.speed_rounded},
+    ];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceColor.withValues(alpha: 0.3),
+        border: Border(
+          bottom: BorderSide(
+            color: AppTheme.borderColor.withValues(alpha: 0.2),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: AppTheme.cardColor,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: AppTheme.borderColor.withValues(alpha: 0.3),
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                children: providers.map((provider) {
+                  final isSelected = _selectedProvider == provider['value'];
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _selectedProvider = provider['value'] as String;
+                          _applyProviderFilter();
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? AppTheme.primaryColor
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              provider['icon'] as IconData,
+                              size: 16,
+                              color: isSelected
+                                  ? Colors.white
+                                  : AppTheme.textMuted,
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              provider['label'] as String,
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: isSelected
+                                    ? Colors.white
+                                    : AppTheme.textSecondary,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ).animate().fadeIn(delay: 150.ms, duration: 300.ms);
+  }
+
   Widget _buildBody() {
     if (_isLoading) {
       return ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: 8,
-        itemBuilder: (_, __) => const SkeletonCard(height: 100),
+        controller: _scrollController,
+        padding: const EdgeInsets.all(20),
+        itemCount: 6,
+        itemBuilder: (_, __) => Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: const SkeletonCard(height: 110),
+        ),
       );
     }
 
@@ -173,20 +508,27 @@ class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  border: Border.all(color: AppTheme.errorColor, width: 2),
-                  borderRadius: BorderRadius.circular(8),
+                  color: AppTheme.errorColor.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: AppTheme.errorColor.withValues(alpha: 0.3),
+                    width: 2,
+                  ),
                 ),
-                child: Icon(Icons.error_outline,
-                    size: 40, color: AppTheme.errorColor),
+                child: Icon(
+                  Icons.error_outline_rounded,
+                  size: 48,
+                  color: AppTheme.errorColor,
+                ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               Text(
-                'ERROR',
+                'OOPS!',
                 style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
                   color: AppTheme.errorColor,
                   letterSpacing: 1,
                 ),
@@ -196,12 +538,22 @@ class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
                 _error!,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    fontSize: 13, color: AppTheme.textSecondary),
+                  fontSize: 14,
+                  color: AppTheme.textSecondary,
+                  height: 1.5,
+                ),
               ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _loadEntries,
-                child: const Text('RETRY'),
+              const SizedBox(height: 28),
+              ElevatedButton.icon(
+                onPressed: _isSearchMode ? _performSearch : _loadEntries,
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                label: const Text('TRY AGAIN'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 14,
+                  ),
+                ),
               ),
             ],
           ),
@@ -209,28 +561,47 @@ class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
       );
     }
 
-    if (_entries.isEmpty) {
+    if (_filteredEntries.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(28),
               decoration: BoxDecoration(
-                border: Border.all(color: AppTheme.borderColor, width: 2),
-                borderRadius: BorderRadius.circular(8),
+                color: AppTheme.surfaceColor.withValues(alpha: 0.5),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppTheme.borderColor.withValues(alpha: 0.5),
+                  width: 2,
+                ),
               ),
-              child: Icon(Icons.movie_outlined,
-                  size: 40, color: AppTheme.textMuted),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'NO CONTENT',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
+              child: Icon(
+                _isSearchMode
+                    ? Icons.search_off_rounded
+                    : Icons.movie_filter_outlined,
+                size: 56,
                 color: AppTheme.textMuted,
-                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              _isSearchMode ? 'NO RESULTS FOUND' : 'NO CONTENT',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.textMuted,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _isSearchMode
+                  ? 'Try different keywords or filters'
+                  : 'Check back later for new content',
+              style: TextStyle(
+                fontSize: 13,
+                color: AppTheme.textMuted.withValues(alpha: 0.7),
               ),
             ),
           ],
@@ -239,7 +610,8 @@ class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.all(20),
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
       itemCount: _filteredEntries.length,
       itemBuilder: (context, index) {
         final entry = _filteredEntries[index];
@@ -263,75 +635,6 @@ class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
       ),
     );
   }
-
-  Widget _buildBottomNav() {
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppTheme.surfaceColor,
-        border: Border(top: BorderSide(color: AppTheme.borderColor)),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _NavBarItem(
-                icon: Icons.dashboard_outlined,
-                activeIcon: Icons.dashboard,
-                label: 'Home',
-                isSelected: true,
-                onTap: () {
-                  context.read<NavigationProvider>().setIndex(0);
-                  Navigator.pop(context);
-                },
-              ),
-              _NavBarItem(
-                icon: Icons.link_outlined,
-                activeIcon: Icons.link,
-                label: 'Magnets',
-                isSelected: false,
-                onTap: () {
-                  context.read<NavigationProvider>().setIndex(1);
-                  Navigator.pop(context);
-                },
-              ),
-              _NavBarItem(
-                icon: Icons.download_outlined,
-                activeIcon: Icons.download,
-                label: 'Downloads',
-                isSelected: false,
-                onTap: () {
-                  context.read<NavigationProvider>().setIndex(2);
-                  Navigator.pop(context);
-                },
-              ),
-              _NavBarItem(
-                icon: Icons.folder_outlined,
-                activeIcon: Icons.folder,
-                label: 'Files',
-                isSelected: false,
-                onTap: () {
-                  context.read<NavigationProvider>().setIndex(3);
-                  Navigator.pop(context);
-                },
-              ),
-              _NavBarItem(
-                icon: Icons.settings_outlined,
-                activeIcon: Icons.settings,
-                label: 'Settings',
-                isSelected: false,
-                onTap: () {
-                  context.read<NavigationProvider>().setIndex(4);
-                  Navigator.pop(context);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _TorrentEntryCard extends StatelessWidget {
@@ -347,84 +650,238 @@ class _TorrentEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final sourceColor = _getSourceColor();
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppTheme.cardColor.withValues(alpha: 0.95),
+            AppTheme.cardColor.withValues(alpha: 0.85),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+            spreadRadius: -2,
+          ),
+          BoxShadow(
+            color: sourceColor.withValues(alpha: 0.08),
+            blurRadius: 15,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            decoration: BoxDecoration(
-              color: AppTheme.cardColor,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppTheme.borderColor, width: 2),
-            ),
-            child: Row(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Colored accent bar
-                Container(
-                  width: 4,
-                  height: 70,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        AppTheme.primaryColor,
-                        AppTheme.accentColor,
-                      ],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Icon Box
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            sourceColor.withValues(alpha: 0.2),
+                            sourceColor.withValues(alpha: 0.05),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: sourceColor.withValues(alpha: 0.1),
+                          width: 1,
+                        ),
+                      ),
+                      child: Icon(
+                        _getSourceIcon(),
+                        color: sourceColor,
+                        size: 22,
+                      ),
                     ),
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(8),
-                      bottomLeft: Radius.circular(8),
+                    const SizedBox(width: 12),
+
+                    // Title & Info
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            entry.title,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.textPrimary,
+                              height: 1.2,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              // Source Badge
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: sourceColor.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  _getSourceShortName().toUpperCase(),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: sourceColor,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              // Result Number
+                              Text(
+                                '#${index + 1}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.textMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // Meta Row: Size, Seeders, Leechers
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      if (entry.size != null && entry.size!.isNotEmpty)
+                        _buildMetaStat(
+                          Icons.storage_rounded,
+                          entry.size!,
+                          Colors.blue.shade300,
+                        ),
+                      if (entry.size != null && entry.seeders != null)
+                        const SizedBox(width: 16),
+                      if (entry.seeders != null)
+                        _buildMetaStat(
+                          Icons.trending_up_rounded,
+                          '${entry.seeders} Seeds',
+                          Colors.green.shade400,
+                        ),
+                      if (entry.seeders != null && entry.leechers != null)
+                        const SizedBox(width: 16),
+                      if (entry.leechers != null)
+                        _buildMetaStat(
+                          Icons.trending_down_rounded,
+                          '${entry.leechers} Peers',
+                          Colors.red.shade400,
+                        ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 14),
-                // Icon
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    Icons.movie_filter,
-                    size: 20,
-                    color: AppTheme.primaryColor,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                // Title
-                Expanded(
-                  child: Text(
-                    entry.title.toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.textPrimary,
-                      letterSpacing: 0.4,
-                      height: 1.4,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Icon(Icons.arrow_forward_ios,
-                    size: 14, color: AppTheme.textMuted),
-                const SizedBox(width: 14),
               ],
             ),
           ),
         ),
       ),
-    )
-        .animate()
-        .fadeIn(delay: (40 * index).ms, duration: 300.ms)
-        .slideX(begin: 0.1, end: 0);
+    ).animate(delay: (40 * index).ms).fadeIn(duration: 350.ms).slideY(
+        begin: 0.15, end: 0, duration: 300.ms, curve: Curves.easeOutCubic);
+  }
+
+  Widget _buildMetaStat(IconData icon, String text, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: color.withValues(alpha: 0.8)),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String get _safeSource {
+    try {
+      return entry.source;
+    } catch (e) {
+      return 'tamilmv';
+    }
+  }
+
+  String _getSourceShortName() {
+    if (_safeSource == 'tamilmv') {
+      return 'TMV';
+    }
+    return _safeSource.length > 4
+        ? _safeSource.substring(0, 4).toUpperCase()
+        : _safeSource.toUpperCase();
+  }
+
+  Color _getSourceColor() {
+    switch (_safeSource) {
+      case 'csv':
+        return Colors.blue.shade400;
+      case 'rarbg':
+        return Colors.purple.shade400;
+      case '1377x':
+        return Colors.orange.shade400;
+      case 'torrenttip':
+        return Colors.red.shade400;
+      case 'tamilmv':
+      default:
+        return AppTheme.accentColor;
+    }
+  }
+
+  IconData _getSourceIcon() {
+    switch (_safeSource) {
+      case 'tamilmv':
+        return Icons.local_fire_department_rounded; // 🔥 TamilMV (popular)
+      case 'csv':
+        return Icons.table_chart_rounded; // 📊 CSV (data)
+      case 'rarbg':
+        return Icons.cloud_download_rounded; // ☁️ RARBG (cloud)
+      case '1377x':
+        return Icons.hub_rounded; // 🔗 1337x (network/hub)
+      case 'torrenttip':
+        return Icons.tips_and_updates_rounded; // 💡 TorrentTip (tips)
+      default:
+        return Icons.movie_rounded;
+    }
   }
 }
 
@@ -459,13 +916,12 @@ class _TorrentDetailsScreenState extends State<_TorrentDetailsScreen> {
     });
 
     try {
-      final downloads =
-          await widget.scraperService.fetchTorrentLinks(widget.entry.url);
+      final downloads = await widget.scraperService.fetchTorrentLinks(
+        widget.entry.url,
+        source: widget.entry.source,
+        infoHash: widget.entry.infoHash,
+      );
       if (mounted) {
-        print('DEBUG: Fetched ${downloads.length} downloads');
-        for (var d in downloads) {
-          print('  - Name: "${d.name}", Size: "${d.size}"');
-        }
         setState(() {
           _downloads = downloads;
           _isLoading = false;
@@ -575,7 +1031,6 @@ class _TorrentDetailsScreenState extends State<_TorrentDetailsScreen> {
       );
     }
 
-    // Get poster and languages from first download
     final posterUrl = _downloads.isNotEmpty ? _downloads.first.posterUrl : null;
     final languages =
         _extractLanguages(_downloads.isNotEmpty ? _downloads.first.name : '');
@@ -584,11 +1039,9 @@ class _TorrentDetailsScreenState extends State<_TorrentDetailsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Poster with overlay and title
           if (posterUrl != null)
             Stack(
               children: [
-                // Poster image with correct aspect ratio
                 AspectRatio(
                   aspectRatio: 2 / 3,
                   child: Image.network(
@@ -622,7 +1075,6 @@ class _TorrentDetailsScreenState extends State<_TorrentDetailsScreen> {
                     },
                   ),
                 ),
-                // Gradient overlay
                 Positioned(
                   bottom: 0,
                   left: 0,
@@ -634,7 +1086,7 @@ class _TorrentDetailsScreenState extends State<_TorrentDetailsScreen> {
                         end: Alignment.bottomCenter,
                         colors: [
                           Colors.transparent,
-                          AppTheme.backgroundColor.withOpacity(0.7),
+                          AppTheme.backgroundColor.withValues(alpha: 0.7),
                           AppTheme.backgroundColor,
                         ],
                       ),
@@ -669,11 +1121,12 @@ class _TorrentDetailsScreenState extends State<_TorrentDetailsScreen> {
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: AppTheme.accentColor.withOpacity(0.2),
+                                  color: AppTheme.accentColor
+                                      .withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(4),
                                   border: Border.all(
-                                    color:
-                                        AppTheme.accentColor.withOpacity(0.5),
+                                    color: AppTheme.accentColor
+                                        .withValues(alpha: 0.5),
                                     width: 1,
                                   ),
                                 ),
@@ -696,7 +1149,6 @@ class _TorrentDetailsScreenState extends State<_TorrentDetailsScreen> {
                 ),
               ],
             ),
-          // Download cards section
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -770,10 +1222,8 @@ class _TorrentDetailsScreenState extends State<_TorrentDetailsScreen> {
   Future<void> _removeMagnet(
       TorrentDownload download, MagnetProvider magnetProvider) async {
     try {
-      // Refresh to get latest magnets
       await magnetProvider.refreshMagnets(showLoading: false);
 
-      // Find the magnet item by hash (extract from magnet link)
       final magnetHash = RegExp(r'btih:([a-fA-F0-9]+)')
           .firstMatch(download.magnetLink)
           ?.group(1)
@@ -813,13 +1263,11 @@ class _TorrentDetailsScreenState extends State<_TorrentDetailsScreen> {
   List<String> _extractLanguages(String name) {
     final languages = <String>[];
 
-    // Extract languages from patterns like [Hindi + Eng] or (Tamil + Telugu)
     final langPattern = RegExp(r'[\[\(]([^\]\)]+?(?:\s*\+\s*[^\]\)]+)+)[\]\)]');
     final match = langPattern.firstMatch(name);
 
     if (match != null) {
       final langString = match.group(1)!;
-      // Split by + and clean up
       languages.addAll(
         langString.split('+').map((e) => e.trim()).where((e) => e.isNotEmpty),
       );
@@ -862,7 +1310,6 @@ class _DownloadCard extends StatelessWidget {
   }
 
   String _cleanTitle(String name) {
-    // Remove quality, source, codec, and language info to get clean title
     return name
         .replaceAll(
             RegExp(r'\s*-\s*(1080p|720p|480p|4K|2160p).*$',
@@ -887,7 +1334,6 @@ class _DownloadCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Title section with gradient background
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -918,49 +1364,48 @@ class _DownloadCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          // Divider
           Container(
             height: 2,
             color: AppTheme.borderColor,
           ),
-          // Meta section
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                // Badges
                 Expanded(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      if (metadata['quality'] != null)
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (metadata['quality'] != null)
+                          _QualityBadge(
+                              text: metadata['quality']!,
+                              color: AppTheme.primaryColor),
+                        if (metadata['source'] != null)
+                          _QualityBadge(
+                              text: metadata['source']!,
+                              color: AppTheme.accentColor),
                         _QualityBadge(
-                            text: metadata['quality']!,
-                            color: AppTheme.primaryColor),
-                      if (metadata['source'] != null)
-                        _QualityBadge(
-                            text: metadata['source']!,
-                            color: AppTheme.accentColor),
-                      _QualityBadge(
-                          text: download.size, color: AppTheme.textMuted),
-                    ],
+                            text: download.size, color: AppTheme.textMuted),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
-                // Add/Remove button based on status
                 if (isAdded)
                   Row(
                     children: [
-                      // ADDED badge
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
-                          color: AppTheme.successColor.withOpacity(0.15),
+                          color: AppTheme.successColor.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                              color: AppTheme.successColor.withOpacity(0.3),
+                              color:
+                                  AppTheme.successColor.withValues(alpha: 0.3),
                               width: 1),
                         ),
                         child: Row(
@@ -985,7 +1430,6 @@ class _DownloadCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      // Remove button
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
@@ -994,10 +1438,11 @@ class _DownloadCard extends StatelessWidget {
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: AppTheme.errorColor.withOpacity(0.1),
+                              color: AppTheme.errorColor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
-                                  color: AppTheme.errorColor.withOpacity(0.3),
+                                  color: AppTheme.errorColor
+                                      .withValues(alpha: 0.3),
                                   width: 1),
                             ),
                             child: Icon(
@@ -1011,7 +1456,6 @@ class _DownloadCard extends StatelessWidget {
                     ],
                   )
                 else
-                  // Add button
                   Material(
                     color: Colors.transparent,
                     child: InkWell(
@@ -1047,6 +1491,40 @@ class _DownloadCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                const SizedBox(width: 8),
+                // Copy Magnet Button
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      Clipboard.setData(
+                          ClipboardData(text: download.magnetLink));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text('Magnet link copied!'),
+                          duration: const Duration(seconds: 2),
+                          backgroundColor: AppTheme.successColor,
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryColor.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: AppTheme.primaryColor.withValues(alpha: 0.3),
+                            width: 1),
+                      ),
+                      child: Icon(
+                        Icons.content_copy,
+                        size: 16,
+                        color: AppTheme.primaryColor,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1056,7 +1534,6 @@ class _DownloadCard extends StatelessWidget {
   }
 }
 
-// Quality badge widget
 class _QualityBadge extends StatelessWidget {
   final String text;
   final Color color;
@@ -1068,9 +1545,9 @@ class _QualityBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
+        border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
       ),
       child: Text(
         text.toUpperCase(),
@@ -1085,57 +1562,334 @@ class _QualityBadge extends StatelessWidget {
   }
 }
 
-class _NavBarItem extends StatelessWidget {
-  final IconData icon;
-  final IconData activeIcon;
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
+// IMDb Search Service for fallback suggestions
+class _IMDbSearchService {
+  static final _imdbService = ImdbService();
 
-  const _NavBarItem({
-    required this.icon,
-    required this.activeIcon,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
+  static Future<List<String>> searchMovies(String query) async {
+    try {
+      final results = await _imdbService.search(query);
+      return results.map((result) => result.title).toList().take(8).toList();
+    } catch (e) {
+      // Silently fail, will use cached suggestions
+      return [];
+    }
+  }
+}
+
+// Custom Search Delegate for enhanced search UI
+class _CustomSearchDelegate extends SearchDelegate<String> {
+  final List<TorrentEntry> entries;
+  final Function(String) onSearch;
+  final String initialQuery;
+  bool _hasRestoredInitialQuery = false;
+
+  _CustomSearchDelegate({
+    required this.entries,
+    required this.onSearch,
+    this.initialQuery = '',
   });
 
   @override
-  Widget build(BuildContext context) {
-    final color = isSelected ? AppTheme.primaryColor : AppTheme.textMuted;
+  String get searchFieldLabel => 'Search movies, shows...';
+
+  InputDecorationTheme get inputDecorationTheme {
+    return InputDecorationTheme(
+      border: InputBorder.none,
+      enabledBorder: InputBorder.none,
+      focusedBorder: InputBorder.none,
+      hintStyle: TextStyle(
+        color: AppTheme.textMuted.withValues(alpha: 0.6),
+        fontWeight: FontWeight.w400,
+      ),
+    );
+  }
+
+  @override
+  ThemeData appBarTheme(BuildContext context) {
+    return Theme.of(context).copyWith(
+      appBarTheme: AppBarTheme(
+        backgroundColor: AppTheme.surfaceColor,
+        surfaceTintColor: AppTheme.surfaceColor,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: AppTheme.textPrimary),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        border: InputBorder.none,
+        hintStyle: TextStyle(
+          color: AppTheme.textMuted.withValues(alpha: 0.6),
+        ),
+      ),
+    );
+  }
+
+  @override
+  List<Widget> buildActions(BuildContext context) {
+    return [
+      if (query.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(right: 16),
+          child: Center(
+            child: GestureDetector(
+              onTap: () {
+                query = '';
+              },
+              child: Icon(
+                Icons.close_rounded,
+                color: AppTheme.primaryColor,
+              ),
+            ),
+          ),
+        ),
+    ];
+  }
+
+  @override
+  Widget buildLeading(BuildContext context) {
+    // Set initial query only once, on first build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_hasRestoredInitialQuery &&
+          query.isEmpty &&
+          initialQuery.isNotEmpty) {
+        _hasRestoredInitialQuery = true;
+        query = initialQuery;
+      }
+    });
 
     return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? AppTheme.primaryColor.withOpacity(0.15)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Icon(
-              isSelected ? activeIcon : icon,
-              size: 22,
-              color: color,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-              color: color,
-            ),
-          ),
-        ],
+      onTap: () => close(context, ''),
+      child: Icon(
+        Icons.arrow_back_rounded,
+        color: AppTheme.primaryColor,
       ),
+    );
+  }
+
+  @override
+  Widget buildResults(BuildContext context) {
+    if (query.isEmpty) {
+      return Center(
+        child: Text(
+          'Enter search query',
+          style: TextStyle(
+            color: AppTheme.textMuted,
+            fontSize: 14,
+          ),
+        ),
+      );
+    }
+
+    // Defer setState call to after build phase
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      onSearch(query);
+      close(context, query);
+    });
+
+    return const SizedBox.shrink();
+  }
+
+  @override
+  Widget buildSuggestions(BuildContext context) {
+    final suggestions = query.isEmpty
+        ? <String>[]
+        : entries
+            .where((e) =>
+                e.title.toLowerCase().contains(query.toLowerCase()) &&
+                !e.title.toLowerCase().startsWith(query.toLowerCase()))
+            .map((e) => e.title)
+            .toSet()
+            .toList()
+            .take(8)
+            .toList();
+
+    final recentMatches = query.isEmpty
+        ? <String>[]
+        : entries
+            .where((e) => e.title.toLowerCase().startsWith(query.toLowerCase()))
+            .map((e) => e.title)
+            .toSet()
+            .toList()
+            .take(8)
+            .toList();
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      children: [
+        if (recentMatches.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text(
+              'MATCHES',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.textMuted,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+          ...recentMatches.map((suggestion) {
+            return _buildSuggestionTile(context, suggestion);
+          }),
+        ],
+        if (suggestions.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              'RELATED',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.textMuted,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+          ...suggestions.map((suggestion) {
+            return _buildSuggestionTile(context, suggestion);
+          }),
+        ],
+        // IMDb Suggestions as Fallback using FutureBuilder
+        if (recentMatches.isEmpty && suggestions.isEmpty && query.length >= 2)
+          FutureBuilder<List<String>>(
+            future: _IMDbSearchService.searchMovies(query),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(
+                        width: 30,
+                        height: 30,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Searching IMDb...',
+                        style: TextStyle(
+                          color: AppTheme.textMuted,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              final imdbSuggestions = snapshot.data ?? [];
+
+              if (imdbSuggestions.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.search_off_rounded,
+                        size: 48,
+                        color: AppTheme.textMuted.withValues(alpha: 0.5),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No suggestions',
+                        style: TextStyle(
+                          color: AppTheme.textMuted,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              return Column(
+                children: [
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'FROM IMDb',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.accentColor,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.accentColor.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'WEB',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.accentColor,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ...imdbSuggestions.map((suggestion) {
+                    return _buildSuggestionTile(context, suggestion,
+                        isImdb: true);
+                  }),
+                ],
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSuggestionTile(
+    BuildContext context,
+    String suggestion, {
+    bool isImdb = false,
+  }) {
+    return ListTile(
+      leading: Icon(
+        isImdb ? Icons.language_rounded : Icons.search_rounded,
+        size: 18,
+        color: isImdb
+            ? AppTheme.accentColor.withValues(alpha: 0.7)
+            : AppTheme.textMuted.withValues(alpha: 0.6),
+      ),
+      title: Text(
+        suggestion,
+        style: const TextStyle(
+          color: AppTheme.textPrimary,
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Icon(
+        Icons.north_west_rounded,
+        size: 16,
+        color: isImdb
+            ? AppTheme.accentColor.withValues(alpha: 0.5)
+            : AppTheme.primaryColor.withValues(alpha: 0.5),
+      ),
+      onTap: () {
+        query = suggestion;
+        showResults(context);
+      },
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+      tileColor: Colors.transparent,
+      hoverColor: AppTheme.primaryColor.withValues(alpha: 0.05),
     );
   }
 }

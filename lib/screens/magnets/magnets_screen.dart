@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../providers/providers.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/common/common_widgets.dart';
+
 import '../../utils/helpers.dart';
 import 'magnet_files_screen.dart';
 
@@ -90,60 +90,50 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
             ),
           ),
 
-          // Compact Total Badge
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
-            ),
-            child: Text(
-              '${provider.magnets.length}',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w900,
-                color: AppTheme.primaryColor,
-              ),
-            ),
-          ),
-
-          const SizedBox(width: 12),
-
-          // Delete All Button
+          // Delete All / Clean Button
           if (provider.magnets.isNotEmpty)
             Material(
               color: Colors.transparent,
-              child: InkWell(
-                onTap: () => _confirmDeleteAll(provider),
-                borderRadius: BorderRadius.circular(50),
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AppTheme.errorColor.withOpacity(0.1),
-                    shape: BoxShape.circle,
+              child: Tooltip(
+                message: 'Clean All',
+                child: InkWell(
+                  onTap: () => _confirmDeleteAll(provider),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: AppTheme.accentColor,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.transparent),
+                    ),
+                    child: const Icon(
+                      Icons.cleaning_services_rounded,
+                      color: Colors.white,
+                      size: 18,
+                    ),
                   ),
-                  child: Icon(Icons.delete_outline_rounded,
-                      size: 20, color: AppTheme.errorColor),
                 ),
               ),
             ),
         ],
       ),
-    ).animate().fadeIn(duration: 300.ms);
+    );
   }
 
   Widget _buildSegmentedTabs(MagnetProvider provider) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
-        height: 48,
-        decoration: BoxDecoration(
-          color: AppTheme.cardColor,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: AppTheme.borderColor),
-        ),
+        height: 54,
         padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: AppTheme.cardColor.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(24),
+          // Glass border
+          border:
+              Border.all(color: Colors.white.withValues(alpha: 0.05), width: 1),
+        ),
         child: Row(
           children: [
             _buildTabItem('ALL', 0, provider.magnets.length),
@@ -154,7 +144,10 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
           ],
         ),
       ),
-    ).animate().fadeIn(delay: 100.ms, duration: 300.ms);
+    )
+        .animate()
+        .fadeIn(delay: 100.ms, duration: 400.ms)
+        .slideY(begin: 0.1, end: 0);
   }
 
   Widget _buildTabItem(String label, int index, int count) {
@@ -163,11 +156,30 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
       child: GestureDetector(
         onTap: () => setState(() => _selectedIndex = index),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeInOut,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutBack,
           decoration: BoxDecoration(
             color: isSelected ? AppTheme.primaryColor : Colors.transparent,
             borderRadius: BorderRadius.circular(20),
+            gradient: isSelected
+                ? LinearGradient(
+                    colors: [
+                      AppTheme.primaryColor,
+                      AppTheme.primaryColor.withValues(alpha: 0.8)
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: AppTheme.primaryColor.withValues(alpha: 0.4),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    )
+                  ]
+                : [],
           ),
           child: Center(
             child: Row(
@@ -186,11 +198,11 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
                   const SizedBox(width: 6),
                   Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? Colors.white.withOpacity(0.2)
-                          : AppTheme.surfaceColor,
+                          ? Colors.black.withValues(alpha: 0.2)
+                          : AppTheme.surfaceColor.withValues(alpha: 0.5),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
@@ -218,7 +230,7 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.dashboard_customize_outlined,
-                size: 48, color: AppTheme.textMuted.withOpacity(0.5)),
+                size: 48, color: AppTheme.textMuted.withValues(alpha: 0.5)),
             const SizedBox(height: 16),
             Text(
               'No items found'.toUpperCase(),
@@ -272,7 +284,7 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AppTheme.errorColor.withOpacity(0.1),
+                  color: AppTheme.errorColor.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(Icons.delete_outline_rounded,
@@ -354,7 +366,7 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AppTheme.errorColor.withOpacity(0.1),
+                  color: AppTheme.errorColor.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(Icons.delete_forever_rounded,
@@ -441,21 +453,61 @@ class _MagnetCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final progress = magnet.size > 0 ? (magnet.downloaded / magnet.size) : 0.0;
     final isReady = magnet.statusCode == 4;
-    final statusColor = isReady ? AppTheme.successColor : AppTheme.primaryColor;
+    final isError = magnet.statusCode > 4;
+
+    // Determine status color/theme
+    final Color statusColor = isReady
+        ? const Color(0xFF10B981) // Emerald Green
+        : (isError
+            ? AppTheme.errorColor
+            : const Color(0xFFF59E0B)); // Amber for active
+
+    // Infer file extension/type for icon
+    final ext = magnet.filename.contains('.')
+        ? magnet.filename.split('.').last.toUpperCase()
+        : 'FILE';
+    final isVideo = ['MKV', 'MP4', 'AVI', 'MOV', 'WMV'].contains(ext);
+    final isAudio = ['MP3', 'FLAC', 'WAV', 'M4A'].contains(ext);
+    final isArchive = ['ZIP', 'RAR', '7Z', 'ISO'].contains(ext);
+
+    IconData typeIcon = Icons.insert_drive_file_outlined;
+    if (isVideo) {
+      typeIcon = Icons.movie_outlined;
+    } else if (isAudio) {
+      typeIcon = Icons.audiotrack_outlined;
+    } else if (isArchive) {
+      typeIcon = Icons.archive_outlined;
+    }
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 12),
+      // No explicit border, just pure raised glass effect
       decoration: BoxDecoration(
-        color: AppTheme.cardColor,
-        borderRadius: BorderRadius.circular(16),
-        border:
-            Border.all(color: AppTheme.borderColor.withOpacity(0.6), width: 1),
+        // Glassy gradient background
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppTheme.cardColor.withValues(alpha: 0.95),
+            AppTheme.cardColor.withValues(alpha: 0.85),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        // Raised shadow
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+            spreadRadius: -2,
           ),
+          // Subtle highlight glow if active
+          if (!isReady && !isError)
+            BoxShadow(
+              color: statusColor.withValues(alpha: 0.1),
+              blurRadius: 15,
+              offset: const Offset(0, 4),
+            ),
         ],
       ),
       clipBehavior: Clip.antiAlias,
@@ -465,44 +517,67 @@ class _MagnetCard extends StatelessWidget {
           onTap: onTap,
           child: Stack(
             children: [
-              // Background progress fill (subtle)
-              if (!isReady && progress > 0)
+              // 1. Dynamic Background for Active State
+              if (!isReady && !isError)
                 Positioned(
-                  left: 0,
-                  top: 0,
                   bottom: 0,
-                  width: MediaQuery.of(context).size.width * progress,
+                  left: 0,
                   child: Container(
-                    color: statusColor.withOpacity(0.04),
+                    height: 4,
+                    width: MediaQuery.of(context).size.width *
+                        progress *
+                        0.9, // approx width
+                    decoration: BoxDecoration(
+                        color: statusColor,
+                        borderRadius: const BorderRadius.only(
+                            topRight: Radius.circular(4),
+                            bottomRight: Radius.circular(4)),
+                        boxShadow: [
+                          BoxShadow(
+                              color: statusColor,
+                              blurRadius: 6,
+                              spreadRadius: 1),
+                        ]),
                   ),
                 ),
 
               Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(14), // Increased padding
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Status Icon
+                        // Creative Icon Box
                         Container(
-                          width: 40,
-                          height: 40,
+                          width: 44,
+                          height: 44,
                           decoration: BoxDecoration(
-                            color: statusColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
+                            gradient: LinearGradient(
+                              colors: [
+                                statusColor.withValues(alpha: 0.2),
+                                statusColor.withValues(alpha: 0.05),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            // Subtle inset border
+                            border: Border.all(
+                                color: statusColor.withValues(alpha: 0.1),
+                                width: 1),
                           ),
                           child: Icon(
-                            isReady
-                                ? Icons.check_circle_outline
-                                : Icons.downloading_rounded,
+                            typeIcon,
                             color: statusColor,
-                            size: 20,
+                            size: 22,
                           ),
                         ),
+
                         const SizedBox(width: 12),
-                        // Title
+
+                        // Title & Info
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -510,10 +585,10 @@ class _MagnetCard extends StatelessWidget {
                               Text(
                                 magnet.filename,
                                 style: const TextStyle(
-                                  fontSize: 13,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.w700,
                                   color: AppTheme.textPrimary,
-                                  height: 1.3,
+                                  height: 1.2,
                                 ),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
@@ -521,34 +596,48 @@ class _MagnetCard extends StatelessWidget {
                               const SizedBox(height: 6),
                               Row(
                                 children: [
-                                  // Status Badge
+                                  // Clean Status Badge
                                   Container(
                                     padding: const EdgeInsets.symmetric(
-                                        horizontal: 6, vertical: 2),
+                                        horizontal: 8, vertical: 3),
                                     decoration: BoxDecoration(
-                                      color: statusColor.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(
-                                          color: statusColor.withOpacity(0.3)),
+                                      color:
+                                          statusColor.withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(8),
                                     ),
-                                    child: Text(
-                                      magnet.magnetStatusCode.label
-                                          .toUpperCase(),
-                                      style: TextStyle(
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w700,
-                                        color: statusColor,
-                                        letterSpacing: 0.5,
-                                      ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (!isReady && !isError) ...[
+                                          SizedBox(
+                                              width: 8,
+                                              height: 8,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: statusColor,
+                                              )),
+                                          const SizedBox(width: 8),
+                                        ],
+                                        Text(
+                                          magnet.magnetStatusCode.label
+                                              .toUpperCase(),
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w800,
+                                            color: statusColor,
+                                            letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
+                                  const SizedBox(width: 12),
                                   Text(
                                     formatBytes(magnet.size),
                                     style: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.textMuted,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w900,
+                                      color: Color(0xFFF59E0B), // Orange
                                     ),
                                   ),
                                 ],
@@ -556,58 +645,77 @@ class _MagnetCard extends StatelessWidget {
                             ],
                           ),
                         ),
-                        // Actions
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: onDelete,
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              height: 40,
-                              width: 40,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: AppTheme.errorColor.withOpacity(0.1),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.delete_outline_rounded,
-                                  size: 20, color: AppTheme.errorColor),
+
+                        // Action: Delete (Highlighted Circular)
+                        InkWell(
+                          onTap: onDelete,
+                          borderRadius:
+                              BorderRadius.circular(50), // Fully rounded
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppTheme.errorColor.withValues(alpha: 0.1),
+                              shape: BoxShape.circle, // Circular shape
+                              border: Border.all(
+                                  color: AppTheme.errorColor
+                                      .withValues(alpha: 0.2)),
                             ),
+                            child: Icon(Icons.delete_outline,
+                                size: 18, color: AppTheme.errorColor),
                           ),
                         ),
                       ],
                     ),
-                    if (!isReady) ...[
-                      const SizedBox(height: 16),
-                      // Progress Bar
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: LinearProgressIndicator(
-                          value: progress,
-                          backgroundColor: AppTheme.surfaceColor,
-                          color: statusColor,
-                          minHeight: 4,
+
+                    // Active State Stats
+                    if (!isReady && !isError) ...[
+                      const SizedBox(height: 14),
+                      // Modern Progress Bar
+                      Container(
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: AppTheme.surfaceColor,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: FractionallySizedBox(
+                          widthFactor: progress.clamp(0.0, 1.0),
+                          child: Container(
+                            decoration: BoxDecoration(
+                                gradient: LinearGradient(colors: [
+                                  statusColor,
+                                  statusColor.withValues(alpha: 0.8)
+                                ]),
+                                borderRadius: BorderRadius.circular(3),
+                                boxShadow: [
+                                  BoxShadow(
+                                      color: statusColor.withValues(alpha: 0.4),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 2))
+                                ]),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      // Stats
+
+                      const SizedBox(height: 10),
+
+                      // Detailed Stats Row
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          _buildMiniStat(
-                              Icons.people_outline, '${magnet.seeders} SEEDS'),
-                          _buildMiniStat(Icons.speed,
-                              '${formatSpeed(magnet.downloadSpeed).toUpperCase()}'),
+                          _buildDetailStat(Icons.speed,
+                              formatSpeed(magnet.downloadSpeed), statusColor),
+                          _buildDetailStat(Icons.people_alt_outlined,
+                              '${magnet.seeders} Seeds', AppTheme.textMuted),
                           Text(
-                            '${(progress * 100).toStringAsFixed(0)}%',
+                            '${(progress * 100).toStringAsFixed(1)}%',
                             style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
                               color: statusColor,
                             ),
                           ),
                         ],
-                      ),
+                      )
                     ],
                   ],
                 ),
@@ -616,21 +724,21 @@ class _MagnetCard extends StatelessWidget {
           ),
         ),
       ),
-    ).animate().fadeIn(delay: (30 * index).ms, duration: 250.ms);
+    );
   }
 
-  Widget _buildMiniStat(IconData icon, String text) {
+  Widget _buildDetailStat(IconData icon, String text, Color color) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 12, color: AppTheme.textMuted),
+        Icon(icon, size: 14, color: color.withValues(alpha: 0.8)),
         const SizedBox(width: 4),
         Text(
           text,
-          style: const TextStyle(
-            fontSize: 10,
+          style: TextStyle(
+            fontSize: 11,
             fontWeight: FontWeight.w600,
-            color: AppTheme.textMuted,
-            letterSpacing: 0.3,
+            color: color,
           ),
         ),
       ],

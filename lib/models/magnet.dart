@@ -1,4 +1,5 @@
 /// Magnet Models for AllDebrid
+library;
 
 enum MagnetStatusCode {
   queued(0, 'Queued', '⏳'),

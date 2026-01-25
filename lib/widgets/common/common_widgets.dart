@@ -193,7 +193,7 @@ class StatusChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
@@ -345,6 +345,6 @@ class SkeletonCard extends StatelessWidget {
         border: Border.all(color: AppTheme.borderColor),
       ),
     ).animate(onPlay: (controller) => controller.repeat()).shimmer(
-        duration: 1200.ms, color: AppTheme.primaryColor.withOpacity(0.1));
+        duration: 1200.ms, color: AppTheme.primaryColor.withValues(alpha: 0.1));
   }
 }

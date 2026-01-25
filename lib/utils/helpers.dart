@@ -10,6 +10,10 @@ String formatBytes(int bytes, {int decimals = 2}) {
   return '${size.toStringAsFixed(decimals)} ${suffixes[i]}';
 }
 
+// Alias for formatBytes
+String formatSize(int bytes, {int decimals = 2}) =>
+    formatBytes(bytes, decimals: decimals);
+
 String formatSpeed(int bytesPerSecond) {
   return '${formatBytes(bytesPerSecond)}/s';
 }

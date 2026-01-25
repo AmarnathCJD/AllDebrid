@@ -2,11 +2,21 @@ class TorrentEntry {
   final String title;
   final String url;
   final String? color;
+  final String? size;
+  final int? seeders;
+  final int? leechers;
+  final String source; // 'tamilmv', 'csv', 'rarbg'
+  final String? infoHash; // For direct magnet construction
 
   TorrentEntry({
     required this.title,
     required this.url,
     this.color,
+    this.size,
+    this.seeders,
+    this.leechers,
+    this.source = 'tamilmv',
+    this.infoHash,
   });
 }
 
@@ -16,6 +26,8 @@ class TorrentDownload {
   final String magnetLink;
   final String? torrentFileUrl;
   final String? posterUrl;
+  final int? seeders;
+  final int? leechers;
 
   TorrentDownload({
     required this.name,
@@ -23,5 +35,7 @@ class TorrentDownload {
     required this.magnetLink,
     this.torrentFileUrl,
     this.posterUrl,
+    this.seeders,
+    this.leechers,
   });
 }

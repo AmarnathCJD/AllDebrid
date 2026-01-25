@@ -64,7 +64,7 @@ class AppTheme {
     return BoxDecoration(
       color: cardColor,
       borderRadius: BorderRadius.circular(borderRadius),
-      border: Border.all(color: accent.withOpacity(0.4), width: 1.5),
+      border: Border.all(color: accent.withValues(alpha: 0.4), width: 1.5),
     );
   }
 
@@ -74,7 +74,7 @@ class AppTheme {
     bool isCircle = false,
   }) {
     return BoxDecoration(
-      color: color.withOpacity(0.1),
+      color: color.withValues(alpha: 0.1),
       shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
       borderRadius: isCircle ? null : BorderRadius.circular(10),
     );

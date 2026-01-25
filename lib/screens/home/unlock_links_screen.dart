@@ -4,7 +4,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../providers/providers.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/helpers.dart';
-import '../../widgets/common/common_widgets.dart';
 
 class UnlockLinksScreen extends StatefulWidget {
   const UnlockLinksScreen({super.key});
@@ -269,11 +268,6 @@ class _UnlockLinksScreenState extends State<UnlockLinksScreen> {
     final provider = context.read<LinkProvider>();
 
     try {
-      final isFolderDomain = item.originalUrl.contains('mega.nz') ||
-          item.originalUrl.contains('drive.google.com') ||
-          item.originalUrl.contains('1fichier.com/dir/');
-
-      // Try redirector first
       try {
         debugPrint('Attempting redirector check for ${item.originalUrl}');
         final redirectorLinks =
@@ -383,7 +377,7 @@ class _UnlockLinksScreenState extends State<UnlockLinksScreen> {
     );
   }
 
-  void _downloadAllAsZip() {
+  Future<void> _downloadAllAsZip() async {
     final successItems = _items
         .where((i) => i.status == _LinkStatus.success && i.downloadUrl != null)
         .toList();
@@ -398,17 +392,41 @@ class _UnlockLinksScreenState extends State<UnlockLinksScreen> {
       return;
     }
 
-    // TODO: Implement ZIP download - for now, download individually
-    for (final item in successItems) {
-      _downloadItem(item);
-    }
-
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Downloading ${successItems.length} files'),
-        backgroundColor: AppTheme.successColor,
+      const SnackBar(
+        content: Text('Creating ZIP archive...'),
+        duration: Duration(seconds: 2),
       ),
     );
+
+    // Filter out folder items if they don't have direct links (already handled by successItems check)
+    final linksForZip = successItems.map((i) => i.originalUrl).toList();
+
+    final zipLink = await context.read<LinkProvider>().createZip(linksForZip);
+
+    if (zipLink != null && mounted) {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      context.read<DownloadProvider>().startDownload(
+            url: zipLink,
+            filename: 'AD_Links_$timestamp.zip',
+          );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ZIP Download started (${successItems.length} files)'),
+          backgroundColor: AppTheme.successColor,
+        ),
+      );
+    } else if (mounted) {
+      final error =
+          context.read<LinkProvider>().error ?? 'Failed to create ZIP';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: AppTheme.errorColor,
+        ),
+      );
+    }
   }
 }
 
@@ -521,7 +539,7 @@ class _LinkResultCard extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: AppTheme.primaryColor.withOpacity(0.1),
+                        color: AppTheme.primaryColor.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Icon(Icons.download,

@@ -121,6 +121,24 @@ class LinkProvider extends ChangeNotifier {
     }
   }
 
+  Future<String?> createZip(List<String> links) async {
+    if (_service == null) return null;
+
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      return await _service!.createZip(links);
+    } catch (e) {
+      _error = e.toString();
+      return null;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   /// Check if link is supported
   Future<bool> isLinkSupported(String link) async {
     if (_service == null) return false;

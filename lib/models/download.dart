@@ -44,6 +44,7 @@ class Download {
   bool get isFailed => status == DownloadStatus.failed;
   bool get isPaused => status == DownloadStatus.paused;
   bool get isPending => status == DownloadStatus.pending;
+  bool get isCancelled => status == DownloadStatus.cancelled;
 
   Map<String, dynamic> toJson() {
     return {
