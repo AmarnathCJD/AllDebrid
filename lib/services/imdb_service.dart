@@ -23,6 +23,10 @@ class ImdbSearchResult {
   final String? kind; // 'movie' or 'tvSeries' or 'tvEpisode'
   final int? season;
   final int? episode;
+  final String? production;
+  final String? backdropUrl;
+  final int priority; // 0: Low, 1: Medium, 2: High
+  final String? customCategory;
 
   ImdbSearchResult({
     required this.id,
@@ -43,6 +47,10 @@ class ImdbSearchResult {
     this.kind,
     this.season,
     this.episode,
+    this.production,
+    this.backdropUrl,
+    this.priority = 1,
+    this.customCategory,
   });
 
   Map<String, dynamic> toJson() => {
@@ -64,6 +72,10 @@ class ImdbSearchResult {
         'kind': kind,
         'season': season,
         'episode': episode,
+        'production': production,
+        'backdropUrl': backdropUrl,
+        'priority': priority,
+        'customCategory': customCategory,
       };
 
   factory ImdbSearchResult.fromJson(Map<String, dynamic> json) =>
@@ -86,6 +98,12 @@ class ImdbSearchResult {
         kind: json['kind'] ?? json['q'],
         season: json['season'],
         episode: json['episode'],
+        production: json['production'],
+        backdropUrl: json['backdropUrl'],
+        priority: json['priority'] != null
+            ? int.tryParse(json['priority'].toString()) ?? 1
+            : 1,
+        customCategory: json['customCategory'],
       );
 
   ImdbSearchResult copyWith({
@@ -107,6 +125,10 @@ class ImdbSearchResult {
     String? kind,
     int? season,
     int? episode,
+    String? production,
+    String? backdropUrl,
+    int? priority,
+    String? customCategory,
   }) {
     return ImdbSearchResult(
       id: id ?? this.id,
@@ -127,6 +149,10 @@ class ImdbSearchResult {
       kind: kind ?? this.kind,
       season: season ?? this.season,
       episode: episode ?? this.episode,
+      production: production ?? this.production,
+      backdropUrl: backdropUrl ?? this.backdropUrl,
+      priority: priority ?? this.priority,
+      customCategory: customCategory ?? this.customCategory,
     );
   }
 
@@ -136,9 +162,42 @@ class ImdbSearchResult {
   }
 }
 
+class WatchProgress {
+  final ImdbSearchResult media;
+  final int position;
+  final int duration;
+  final int lastUpdated;
+
+  WatchProgress({
+    required this.media,
+    required this.position,
+    required this.duration,
+    required this.lastUpdated,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'media': media.toJson(),
+        'position': position,
+        'duration': duration,
+        'lastUpdated': lastUpdated,
+      };
+
+  factory WatchProgress.fromJson(Map<String, dynamic> json) => WatchProgress(
+        media: ImdbSearchResult.fromJson(json['media']),
+        position: json['position'] ?? 0,
+        duration: json['duration'] ?? 0,
+        lastUpdated: json['lastUpdated'] ?? 0,
+      );
+}
+
 class ImdbService {
   static const String _storagePrefix = 'imdb_link_';
   final Dio _dio = Dio();
+  static final Map<String, List<ImdbSearchResult>> _recommendationsCache = {};
+
+  List<ImdbSearchResult> getScrapedRecommendations(String id) {
+    return _recommendationsCache[id] ?? [];
+  }
 
   Future<List<ImdbSearchResult>> search(String query) async {
     try {
@@ -164,7 +223,6 @@ class ImdbService {
         final List<dynamic> items = data['d'] ?? [];
 
         return items.where((item) => item['i'] != null).map((item) {
-          // Extract video ID from 'v' list if available
           String? videoId;
           if (item['v'] != null &&
               item['v'] is List &&
@@ -173,20 +231,17 @@ class ImdbService {
           }
 
           final kind = item['q']?.toString();
-          debugPrint('[IMDB] Search result: ${item['l']} - kind=$kind');
 
           return ImdbSearchResult(
             id: item['id'] ?? '',
             title: item['l'] ?? '',
             year: item['y']?.toString() ?? '',
-            posterUrl: item['i']?['imageUrl'] ?? '',
-            stars: item['s'], // Cast/Stars
+            posterUrl: _getHighQualityPoster(item['i']?['imageUrl'] ?? ''),
+            stars: item['s'],
             videoId: videoId,
-            rating: item['k']
-                ?.toString(), // Sometimes 'k' is rank/rating? No, usually not in suggestion. Keeping null safe.
-            description: null, // Description usually not in suggestion
-            kind:
-                kind, // 'q' contains content type like 'feature', 'tv series', etc
+            rating: item['k']?.toString(),
+            description: null,
+            kind: kind,
           );
         }).toList();
       }
@@ -211,7 +266,7 @@ class ImdbService {
         final document = html_parser.parse(response.data);
         final List<ImdbSearchResult> results = [];
 
-        // Try parsing __NEXT_DATA__ first (more reliable data)
+        // Try parsing __NEXT_DATA__ first
         try {
           final nextData = document.querySelector('script[id="__NEXT_DATA__"]');
           if (nextData != null) {
@@ -232,17 +287,14 @@ class ImdbService {
                 id: id,
                 title: title,
                 year: year,
-                posterUrl: image,
+                posterUrl: _getHighQualityPoster(image),
                 rating: rating,
               ));
             }
             if (results.isNotEmpty) return results;
           }
-        } catch (e) {
-          // Fallback to CSS scraping
-        }
+        } catch (e) {}
 
-        // CSS Fallback
         final items =
             document.querySelectorAll('.ipc-metadata-list-summary-item');
         for (var item in items) {
@@ -272,7 +324,7 @@ class ImdbService {
                 id: id,
                 title: title,
                 year: year,
-                posterUrl: posterUrl,
+                posterUrl: _getHighQualityPoster(posterUrl),
                 rating: rating,
               ));
             }
@@ -288,92 +340,49 @@ class ImdbService {
     return [];
   }
 
-  Future<ImdbSearchResult> fetchDetails(String id) async {
-    // Try OMDb API first (more reliable, no anti-bot)
-    try {
-      final omdbResponse = await _dio.get(
-        'https://www.omdbapi.com/',
-        queryParameters: {
-          'i': id,
-          'apikey': 'trilogy', // Free public key
-          'plot': 'full',
-        },
-      );
-
-      if (omdbResponse.statusCode == 200 &&
-          omdbResponse.data['Response'] == 'True') {
-        final data = omdbResponse.data;
-
-        return ImdbSearchResult(
-          id: id,
-          title: data['Title'] ?? '',
-          year: data['Year']?.toString() ?? '',
-          posterUrl: data['Poster'] != 'N/A' ? data['Poster'] : '',
-          rating: data['imdbRating'] != 'N/A' ? data['imdbRating'] : null,
-          description: data['Plot'] != 'N/A' ? data['Plot'] : null,
-          duration: data['Runtime'] != 'N/A' ? data['Runtime'] : null,
-          genres: data['Genre'] != 'N/A' ? data['Genre'] : null,
-          stars: data['Actors'] != 'N/A' ? data['Actors'] : null,
-          releaseDate: data['Released'] != 'N/A' ? data['Released'] : null,
-          ratingCount: data['imdbVotes'] != 'N/A' ? data['imdbVotes'] : null,
-          country: data['Country'] != 'N/A' ? data['Country'] : null,
-          languages: data['Language'] != 'N/A' ? data['Language'] : null,
-          videoId: null, // OMDb doesn't provide trailer
-          kind: data['Type']?.toString(),
-        );
-      }
-    } catch (e) {
-      // Continue to IMDb scraping
+  String _getHighQualityPoster(String url) {
+    if (url.isEmpty || url.contains('nopicture')) return '';
+    if (url.contains('._V1_')) {
+      return url.replaceAll(RegExp(r'\._V1_.*'), '._V1_SX1000.jpg');
     }
+    return url;
+  }
 
-    // Fallback to IMDb scraping
+  Future<ImdbSearchResult> fetchDetails(String id) async {
     try {
       final response = await _dio.get(
         'https://www.imdb.com/title/$id/',
         options: Options(headers: {
           'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3',
           'Accept':
               'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Cache-Control': 'max-age=0',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-          'Upgrade-Insecure-Requests': '1',
+          'Accept-Language': 'en-US,en;q=0.5',
         }),
       );
 
-      // Accept both 200 (OK) and 202 (Accepted)
       if (response.statusCode == 200 || response.statusCode == 202) {
         final document = html_parser.parse(response.data);
 
-        // 1. Parse JSON-LD
-        Map<String, dynamic>? jsonLd;
+        Map<String, dynamic> jsonLd = {};
         final jsonLdScript =
             document.querySelector('script[type="application/ld+json"]');
         if (jsonLdScript != null) {
           try {
             jsonLd = jsonDecode(jsonLdScript.text);
-          } catch (e) {
-            // ignore
-          }
+          } catch (e) {}
         }
 
-        // 2. Title
         final title =
             document.querySelector("h1[data-testid=hero__pageTitle]")?.text ??
-                jsonLd?['name'] ??
+                jsonLd['name'] ??
                 '';
 
-        // 3. Poster
-        final poster = jsonLd?['image'] ??
+        final poster = jsonLd['image'] ??
             document.querySelector("div.ipc-poster img")?.attributes['src'] ??
             '';
 
-        // 4. Description
-        String? description = jsonLd?['description'];
+        String? description = jsonLd['description'];
         if (description == null || description.isEmpty) {
           description =
               document.querySelector("span[data-testid=plot-xl]")?.text ??
@@ -382,9 +391,12 @@ class ImdbService {
                       ?.attributes['content'];
         }
 
-        // 5. Rating
+        if (description != null) {
+          description = html_parser.parseFragment(description).text;
+        }
+
         String? rating;
-        if (jsonLd != null && jsonLd['aggregateRating'] != null) {
+        if (jsonLd['aggregateRating'] != null) {
           final ratingValue = jsonLd['aggregateRating']['ratingValue'];
           if (ratingValue != null) {
             rating = ratingValue.toString();
@@ -396,9 +408,8 @@ class ImdbService {
           rating = ratingDiv?.text;
         }
 
-        // 6. Rating Count
         String? ratingCount;
-        if (jsonLd != null && jsonLd['aggregateRating'] != null) {
+        if (jsonLd['aggregateRating'] != null) {
           final countValue = jsonLd['aggregateRating']['ratingCount'];
           if (countValue != null) {
             ratingCount = countValue.toString();
@@ -411,33 +422,39 @@ class ImdbService {
           }
         }
 
-        // 7. Duration
-        final duration = document
+        String? duration = document
             .querySelector("li[data-testid=title-techspec_runtime] div")
             ?.text;
 
-        // 8. Release Date & Year
+        if (duration == null && jsonLd['duration'] != null) {
+          final dur = jsonLd['duration'].toString();
+          final hMatch = RegExp(r'(\d+)H').firstMatch(dur);
+          final mMatch = RegExp(r'(\d+)M').firstMatch(dur);
+          final h = hMatch != null ? '${hMatch.group(1)}h' : '';
+          final m = mMatch != null ? '${mMatch.group(1)}m' : '';
+          if (h.isNotEmpty || m.isNotEmpty) {
+            duration = '$h $m'.trim();
+          }
+        }
+
         String? releaseDate = document
             .querySelector("li[data-testid=title-details-releasedate] a")
             ?.text
             .replaceAll('Release date', '')
             .trim();
 
+        if (releaseDate == null && jsonLd['datePublished'] != null) {
+          releaseDate = jsonLd['datePublished'].toString();
+        }
+
         String year = '';
         if (releaseDate != null && releaseDate.length >= 4) {
           final yearMatch = RegExp(r'\d{4}').firstMatch(releaseDate);
           if (yearMatch != null) year = yearMatch.group(0)!;
         }
-        if (year.isEmpty && jsonLd?['datePublished'] != null) {
-          final dateStr = jsonLd!['datePublished'].toString();
-          if (dateStr.length >= 4) {
-            year = dateStr.substring(0, 4);
-          }
-        }
 
-        // 9. Genres
         List<String> genreList = [];
-        if (jsonLd != null && jsonLd['genre'] != null) {
+        if (jsonLd['genre'] != null) {
           if (jsonLd['genre'] is List) {
             for (var g in jsonLd['genre']) {
               genreList.add(g.toString());
@@ -452,14 +469,14 @@ class ImdbService {
               .forEach((el) => genreList.add(el.text));
         }
 
-        // 10. Actors
         List<String> actors = [];
         document
             .querySelectorAll("a[data-testid=title-cast-item__actor]")
             .forEach((el) {
           actors.add(el.text);
         });
-        if (actors.isEmpty && jsonLd != null && jsonLd['actor'] != null) {
+        // JSON-LD fallback for actors
+        if (actors.isEmpty && jsonLd['actor'] != null) {
           if (jsonLd['actor'] is List) {
             for (var a in jsonLd['actor']) {
               if (a is Map && a['name'] != null) actors.add(a['name']);
@@ -467,10 +484,8 @@ class ImdbService {
           }
         }
 
-        // 11. Trailer
         String? trailerUrl;
-        if (jsonLd != null &&
-            jsonLd['trailer'] != null &&
+        if (jsonLd['trailer'] != null &&
             jsonLd['trailer']['embedUrl'] != null) {
           trailerUrl = jsonLd['trailer']['embedUrl'];
           if (trailerUrl!.contains('/video/')) {
@@ -479,13 +494,12 @@ class ImdbService {
             if (segments.contains('video')) {
               final idx = segments.indexOf('video');
               if (idx + 1 < segments.length) {
-                trailerUrl = segments[idx + 1]; // vi ID
+                trailerUrl = segments[idx + 1];
               }
             }
           }
         }
 
-        // 12. Countries
         List<String> countries = [];
         document
             .querySelectorAll("li[data-testid=title-details-origin] a")
@@ -493,7 +507,6 @@ class ImdbService {
           countries.add(el.text);
         });
 
-        // 13. Languages
         List<String> langs = [];
         document
             .querySelectorAll("li[data-testid=title-details-languages] a")
@@ -501,28 +514,241 @@ class ImdbService {
           langs.add(el.text);
         });
 
+        // Production Companies
+        List<String> productionCompanies = [];
+        document
+            .querySelectorAll("li[data-testid=title-details-companies] a")
+            .forEach((el) {
+          final text = el.text;
+          if (!text.toLowerCase().contains('production companies')) {
+            productionCompanies.add(text);
+          }
+        });
+
+        // JSON-LD explicit fallback for production
+        if (productionCompanies.isEmpty &&
+            jsonLd['productionCompany'] != null) {
+          if (jsonLd['productionCompany'] is List) {
+            for (var pc in jsonLd['productionCompany']) {
+              if (pc is Map && pc['name'] != null) {
+                productionCompanies.add(pc['name']);
+              }
+            }
+          }
+        }
+
+        // Backdrop/Image (Video Thumbnail or OG Image)
+        String? backdrop;
+        final ogImage = document
+            .querySelector('meta[property="og:image"]')
+            ?.attributes['content'];
+        if (ogImage != null && !ogImage.contains('nopicture')) {
+          backdrop = _getHighQualityPoster(ogImage);
+        }
+
+        final List<ImdbSearchResult> recs = [];
+        try {
+          final recItems = document.querySelectorAll(
+              "div[data-testid=shoveler-items-container] .ipc-poster-card");
+
+          for (var item in recItems) {
+            final linkEl = item.querySelector("a.ipc-poster-card__title");
+            final idMatch = RegExp(r'/title/(tt\d+)/')
+                .firstMatch(linkEl?.attributes['href'] ?? '');
+            final recId = idMatch?.group(1) ?? '';
+
+            final recTitle = linkEl?.text ?? '';
+
+            final imgEl = item.querySelector("img.ipc-image");
+            final recPoster = imgEl?.attributes['src'] ?? '';
+
+            final ratingEl = item.querySelector(".ipc-rating-star--base");
+            final recRating = ratingEl?.text.split('(').first.trim();
+
+            if (recId.isNotEmpty) {
+              recs.add(ImdbSearchResult(
+                id: recId,
+                title: recTitle,
+                year: '',
+                posterUrl: _getHighQualityPoster(recPoster),
+                rating: recRating,
+              ));
+            }
+          }
+          if (recs.isNotEmpty) {
+            _recommendationsCache[id] = recs;
+          }
+        } catch (_) {}
+
         return ImdbSearchResult(
           id: id,
           title: title,
           year: year,
-          posterUrl: poster,
+          posterUrl: _getHighQualityPoster(poster),
           rating: rating,
           description: description,
           duration: duration,
           genres: genreList.join(', '),
-          stars: actors.take(5).join(', '),
+          stars: actors.take(8).join(', '),
           releaseDate: releaseDate,
           ratingCount: ratingCount,
           country: countries.join(', '),
           languages: langs.join(', '),
           videoId: trailerUrl,
-          kind: jsonLd?['@type']?.toString(),
+          kind: jsonLd['@type']?.toString(),
+          production: productionCompanies.join(', '),
+          backdropUrl: backdrop,
         );
       }
     } catch (e) {
-      // Ignore error
+      debugPrint('Error fetching details: $e');
     }
     return ImdbSearchResult(id: id, title: '', year: '', posterUrl: '');
+  }
+
+  Future<String?> fetchTrailerStreamUrl(String videoId) async {
+    try {
+      final videoPageUrl = 'https://www.imdb.com/video/$videoId/';
+      final response = await _dio.get(
+        videoPageUrl,
+        options: Options(headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final document = html_parser.parse(response.data);
+        final scriptTag = document.querySelector('script[id="__NEXT_DATA__"]');
+        if (scriptTag != null) {
+          final json = jsonDecode(scriptTag.text);
+          final playbackUrls = json['props']['pageProps']['videoPlaybackData']
+              ['video']['playbackURLs'] as List;
+
+          // Find MP4 first
+          final mp4Urls =
+              playbackUrls.where((u) => u['videoMimeType'] == 'MP4').toList();
+          if (mp4Urls.isNotEmpty) {
+            // Sort by quality
+            mp4Urls.sort((a, b) {
+              final qa = a['videoDefinition']?.toString() ?? '';
+              final qb = b['videoDefinition']?.toString() ?? '';
+              if (qa.contains('1080')) return -1;
+              if (qb.contains('1080')) return 1;
+              if (qa.contains('720')) return -1;
+              if (qb.contains('720')) return 1;
+              return 0;
+            });
+            return mp4Urls.first['url'];
+          } else if (playbackUrls.isNotEmpty) {
+            return playbackUrls.first['url'];
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching trailer stream: $e');
+    }
+
+    // Fallback if needed
+    return 'https://imdb-video.media-imdb.com/mc/$videoId/${videoId}_720p.mp4';
+  }
+
+  Future<String?> findTrailerVideoId(String imdbId) async {
+    try {
+      // First try descending (newest first)
+      String? videoId = await _scrapeVideoGallery(imdbId, 'date', 'desc');
+      if (videoId != null) return videoId;
+
+      // Try ascending
+      videoId = await _scrapeVideoGallery(imdbId, 'date', 'asc');
+      if (videoId != null) return videoId;
+
+      return null;
+    } catch (e) {
+      debugPrint('Error finding trailer ID: $e');
+      return null;
+    }
+  }
+
+  Future<String?> _scrapeVideoGallery(
+      String imdbId, String sort, String order) async {
+    try {
+      final url =
+          'https://www.imdb.com/title/$imdbId/videogallery/?sort=$sort,$order';
+      final response = await _dio.get(
+        url,
+        options: Options(headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final document = html_parser.parse(response.data);
+
+        // Find all clamp-none spans which contain video titles/types
+        final spans = document.querySelectorAll(
+            'span.ipc-lockup-overlay__text.ipc-lockup-overlay__text--clamp-none');
+
+        // 1. Look for 'Trailer'
+        for (var span in spans) {
+          if (span.text.contains('Trailer')) {
+            final link = span.parent; // usually 'a' tag is parent or close
+            // If parent is not 'a', try finding closest 'a'
+            var aTag = link;
+            while (aTag != null && aTag.localName != 'a') {
+              aTag = aTag.parent;
+            }
+
+            if (aTag != null) {
+              final href = aTag.attributes['href'];
+              if (href != null && href.contains('/video/')) {
+                // Extract video ID from /video/viXXXXX/
+                final match = RegExp(r'/video/(vi\d+)/').firstMatch(href);
+                if (match != null) return match.group(1);
+              }
+            }
+          }
+        }
+
+        // 2. Look for 'Clip'
+        for (var span in spans) {
+          if (span.text.contains('Clip')) {
+            final link = span.parent;
+            var aTag = link;
+            while (aTag != null && aTag.localName != 'a') {
+              aTag = aTag.parent;
+            }
+            if (aTag != null) {
+              final href = aTag.attributes['href'];
+              if (href != null && href.contains('/video/')) {
+                final match = RegExp(r'/video/(vi\d+)/').firstMatch(href);
+                if (match != null) return match.group(1);
+              }
+            }
+          }
+        }
+
+        // 3. Fallback: First video > 30s
+        final videoLinks = document.querySelectorAll('a[href*="/video/vi"]');
+        for (var link in videoLinks) {
+          final href = link.attributes['href'];
+          // Try to find duration
+          // Usually near the link or inside a shared container
+          // This is harder to robustly scrape without exact DOM path,
+          // but we can try basic hierarchy check or just return first video.
+          if (href != null) {
+            final match = RegExp(r'/video/(vi\d+)/').firstMatch(href);
+            if (match != null) return match.group(1);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error scraping gallery: $e');
+    }
+    return null;
   }
 
   Future<void> saveLink(String filename, ImdbSearchResult result) async {
@@ -579,6 +805,62 @@ class ImdbService {
     await prefs.setStringList('imdb_recents', recents);
   }
 
+  Future<void> clearRecents() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('imdb_recents');
+  }
+
+  // --- Continue Watching Support ---
+
+  Future<List<WatchProgress>> getContinueWatching() async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = prefs.getStringList('imdb_continue_watching');
+    if (data != null) {
+      return data.map((e) => WatchProgress.fromJson(jsonDecode(e))).toList();
+    }
+    return [];
+  }
+
+  Future<void> saveWatchProgress(
+      ImdbSearchResult media, int position, int duration) async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String> list = prefs.getStringList('imdb_continue_watching') ?? [];
+    List<WatchProgress> progressList =
+        list.map((e) => WatchProgress.fromJson(jsonDecode(e))).toList();
+
+    // Remove existing entry for this media
+    progressList.removeWhere((p) => p.media.id == media.id);
+
+    // Add new entry
+    progressList.insert(
+        0,
+        WatchProgress(
+          media: media,
+          position: position,
+          duration: duration,
+          lastUpdated: DateTime.now().millisecondsSinceEpoch,
+        ));
+
+    // Keep max 20
+    if (progressList.length > 20) {
+      progressList = progressList.sublist(0, 20);
+    }
+
+    // Save
+    await prefs.setStringList('imdb_continue_watching',
+        progressList.map((p) => jsonEncode(p.toJson())).toList());
+  }
+
+  Future<void> removeFromContinueWatching(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String> list = prefs.getStringList('imdb_continue_watching') ?? [];
+    List<WatchProgress> progressList =
+        list.map((e) => WatchProgress.fromJson(jsonDecode(e))).toList();
+    progressList.removeWhere((p) => p.media.id == id);
+    await prefs.setStringList('imdb_continue_watching',
+        progressList.map((p) => jsonEncode(p.toJson())).toList());
+  }
+
   Future<void> saveTrendingCache(List<ImdbSearchResult> results) async {
     final prefs = await SharedPreferences.getInstance();
     final data = results.map((e) => jsonEncode(e.toJson())).toList();
@@ -596,6 +878,59 @@ class ImdbService {
       } catch (e) {
         return [];
       }
+    }
+    return [];
+  }
+
+  Future<List<ImdbSearchResult>> getByGenre(String genre) async {
+    try {
+      final cleanGenre = genre.toLowerCase().trim();
+      final url =
+          'https://www.imdb.com/search/title/?genres=$cleanGenre&explore=genres&title_type=feature';
+
+      final response = await _dio.get(
+        url,
+        options: Options(headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final document = html_parser.parse(response.data);
+        final List<ImdbSearchResult> results = [];
+
+        // Try __NEXT_DATA__
+        final nextData = document.querySelector('script[id="__NEXT_DATA__"]');
+        if (nextData != null) {
+          final json = jsonDecode(nextData.text);
+          final edges = json['props']['pageProps']['searchResults']
+              ['titleResults']['titleListItems'] as List;
+
+          for (var edge in edges) {
+            final id = edge['titleId'];
+            final title = edge['titleText'];
+            final image = edge['primaryImage']?['url'] ?? '';
+            final year = edge['releaseYear']?.toString() ?? '';
+            final rating =
+                edge['ratingsSummary']?['aggregateRating']?.toString();
+
+            results.add(ImdbSearchResult(
+              id: id,
+              title: title,
+              year: year,
+              posterUrl: _getHighQualityPoster(image),
+              rating: rating,
+            ));
+          }
+          if (results.isNotEmpty) return results;
+        }
+
+        // Fallback to scraping list items if NEXT_DATA fails or structure differs
+      }
+    } catch (e) {
+      debugPrint('Error fetching genre $genre: $e');
     }
     return [];
   }

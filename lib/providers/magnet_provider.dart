@@ -76,7 +76,11 @@ class MagnetProvider extends ChangeNotifier {
     }
 
     try {
-      _magnets = await _service!.getAllMagnets();
+      final freshMagnets = await _service!.getAllMagnets();
+      // Filter out pending deletions
+      _magnets = freshMagnets
+          .where((m) => !_pendingDeletions.contains(m.id.toString()))
+          .toList();
       _magnets.sort((a, b) => b.uploadDate.compareTo(a.uploadDate));
       _error = null;
     } catch (e) {
@@ -89,25 +93,35 @@ class MagnetProvider extends ChangeNotifier {
     }
   }
 
+  // Placeholder for local torrent service if we integrate one
+  // final TorrentService _torrentService = TorrentService();
+
   /// Upload a magnet
   Future<MagnetUploadResult?> uploadMagnet(String magnet) async {
-    if (_service == null) return null;
-
     _isLoading = true;
     _error = null;
     notifyListeners();
 
-    try {
-      final result = await _service!.uploadSingleMagnet(magnet);
-      await refreshMagnets(showLoading: false);
-      return result;
-    } catch (e) {
-      _error = e.toString();
-      return null;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
+    // 1. Try AllDebrid first
+    if (_service != null) {
+      try {
+        final result = await _service!.uploadSingleMagnet(magnet);
+        await refreshMagnets(showLoading: false);
+        return result;
+      } catch (e) {
+        // If AllDebrid fails, we fallback to local or show error
+        // print('AllDebrid upload failed: $e. Attempting fallback...');
+        _error = e.toString();
+      }
+    } else {
+      _error = "AllDebrid service not available";
     }
+
+    // Fallback logic could go here
+
+    _isLoading = false;
+    notifyListeners();
+    return null;
   }
 
   /// Get magnet files
@@ -137,17 +151,30 @@ class MagnetProvider extends ChangeNotifier {
     }
   }
 
+  final Set<String> _pendingDeletions = {};
+
   /// Delete a magnet
   Future<bool> deleteMagnet(String magnetId) async {
     if (_service == null) return false;
 
+    // Optimistic update
+    _pendingDeletions.add(magnetId);
+    _magnets.removeWhere((m) => m.id.toString() == magnetId);
+    notifyListeners();
+
     try {
       await _service!.deleteMagnet(magnetId);
-      _magnets.removeWhere((m) => m.id.toString() == magnetId);
-      notifyListeners();
+      // Keep in pending deletions briefly to ensure next refresh doesn't bring it back immediately
+      // if the server is slow to update its list
+      Future.delayed(const Duration(seconds: 5), () {
+        _pendingDeletions.remove(magnetId);
+      });
       return true;
     } catch (e) {
       _error = e.toString();
+      _pendingDeletions.remove(magnetId); // Revert on error
+      // We might need to refresh to get it back if we removed it
+      refreshMagnets(showLoading: false);
       notifyListeners();
       return false;
     }

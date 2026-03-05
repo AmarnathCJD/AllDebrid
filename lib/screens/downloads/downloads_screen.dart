@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'dart:ui';
 import '../../providers/providers.dart';
 import '../../theme/app_theme.dart';
 import '../../services/imdb_service.dart';
@@ -200,7 +201,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                         color: AppTheme.borderColor.withValues(alpha: 0.4)),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
+                        color: Colors.black.withValues(alpha: 0.1),
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       ),
@@ -240,8 +241,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                     end: Alignment.bottomCenter,
                                     colors: [
                                       Colors.transparent,
-                                      Colors.black.withOpacity(0.3),
-                                      Colors.black.withOpacity(0.6),
+                                      Colors.black.withValues(alpha: 0.3),
+                                      Colors.black.withValues(alpha: 0.6),
                                     ],
                                   ),
                                 ),
@@ -299,7 +300,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                         horizontal: 8, vertical: 4),
                                     decoration: BoxDecoration(
                                       color: AppTheme.primaryColor
-                                          .withOpacity(0.2),
+                                          .withValues(alpha: 0.2),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
@@ -347,7 +348,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
                                     color:
-                                        AppTheme.primaryColor.withOpacity(0.1),
+                                        AppTheme.primaryColor.withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Icon(
@@ -400,7 +401,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.backgroundColor.withOpacity(0.5),
+        color: AppTheme.backgroundColor.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppTheme.borderColor.withValues(alpha: 0.3)),
       ),
@@ -434,7 +435,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: AppTheme.primaryColor.withOpacity(0.2),
+                          color: AppTheme.primaryColor.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
@@ -522,7 +523,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                   padding: const EdgeInsets.all(6),
                                   decoration: BoxDecoration(
                                     color:
-                                        Colors.green.shade400.withOpacity(0.2),
+                                        Colors.green.shade400.withValues(alpha: 0.2),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Icon(
@@ -550,7 +551,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                 padding: const EdgeInsets.all(6),
                                 decoration: BoxDecoration(
                                   color:
-                                      const Color(0xFFF59E0B).withOpacity(0.2),
+                                      const Color(0xFFF59E0B).withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Icon(
@@ -577,7 +578,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(6),
                                 decoration: BoxDecoration(
-                                  color: AppTheme.errorColor.withOpacity(0.2),
+                                  color: AppTheme.errorColor.withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: const Icon(
@@ -618,7 +619,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                   padding: const EdgeInsets.all(6),
                                   decoration: BoxDecoration(
                                     color:
-                                        AppTheme.primaryColor.withOpacity(0.2),
+                                        AppTheme.primaryColor.withValues(alpha: 0.2),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: const Icon(
@@ -670,7 +671,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(6),
                                 decoration: BoxDecoration(
-                                  color: AppTheme.errorColor.withOpacity(0.2),
+                                  color: AppTheme.errorColor.withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: const Icon(
@@ -699,28 +700,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     DownloadProvider provider,
     dynamic download,
   ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppTheme.surfaceColor,
-        title: const Text('Delete Episode?',
-            style: TextStyle(color: AppTheme.textPrimary)),
-        content: Text('Are you sure you want to delete "${download.filename}"?',
-            style: const TextStyle(color: AppTheme.textSecondary)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel',
-                style: TextStyle(color: AppTheme.textMuted)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete',
-                style: TextStyle(color: AppTheme.errorColor)),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await _showModernDeleteDialog(context, download.filename);
 
     if (confirmed == true) {
       provider.removeDownload(download.id);
@@ -779,37 +759,169 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       ratingCount: imdb?.ratingCount,
       season: imdb?.season,
       episode: imdb?.episode,
+      production: imdb?.production,
+      backdropUrl: imdb?.backdropUrl,
+      releaseDate: imdb?.releaseDate,
     ).animate().fadeIn(duration: 200.ms);
   }
 
   Future<void> _confirmDelete(
       BuildContext context, DownloadProvider provider, dynamic download) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppTheme.surfaceColor,
-        title: const Text('Delete Download?',
-            style: TextStyle(color: AppTheme.textPrimary)),
-        content: Text('Are you sure you want to delete "${download.filename}"?',
-            style: const TextStyle(color: AppTheme.textSecondary)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel',
-                style: TextStyle(color: AppTheme.textMuted)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete',
-                style: TextStyle(color: AppTheme.errorColor)),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await _showModernDeleteDialog(context, download.filename);
 
     if (confirmed == true) {
       provider.removeDownload(download.id);
     }
+  }
+
+  Future<bool?> _showModernDeleteDialog(BuildContext context, String filename) {
+    return showDialog<bool>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.85),
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0.0, end: 1.0),
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutQuart,
+          builder: (context, value, child) {
+            return Transform.scale(
+              scale: 0.95 + (0.05 * value),
+              child: Opacity(
+                opacity: value.clamp(0.0, 1.0),
+                child: child,
+              ),
+            );
+          },
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 340),
+                padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF141414).withValues(alpha: 0.95),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    width: 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      blurRadius: 40,
+                      offset: const Offset(0, 20),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Heading Text
+                    Text(
+                      'Confirm Deletion',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.textMuted.withValues(alpha: 0.7),
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // Filename Text with truncation
+                    Text(
+                      filename,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    // Action Buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => Navigator.pop(context, false),
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              height: 46,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.05),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.05),
+                                ),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                'Cancel',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.white.withValues(alpha: 0.7),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => Navigator.pop(context, true),
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              height: 46,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    const Color(0xFFDC2626), // Red 600
+                                    const Color(0xFFB91C1C)
+                                        .withValues(alpha: 0.8), // Red 700
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFDC2626)
+                                        .withValues(alpha: 0.3),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              alignment: Alignment.center,
+                              child: const Text(
+                                'Delete',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildHeader(BuildContext context, DownloadProvider provider) {

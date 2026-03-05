@@ -7,6 +7,7 @@ class TorrentEntry {
   final int? leechers;
   final String source; // 'tamilmv', 'csv', 'rarbg'
   final String? infoHash; // For direct magnet construction
+  final String? posterUrl;
 
   TorrentEntry({
     required this.title,
@@ -17,6 +18,7 @@ class TorrentEntry {
     this.leechers,
     this.source = 'tamilmv',
     this.infoHash,
+    this.posterUrl,
   });
 }
 

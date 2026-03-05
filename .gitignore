@@ -43,3 +43,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# AI Agent Settings
+.agent/*
+.gsd/*
+.gemini/*
+.cursor/*
+.agent/rules/*
+.agent/rules/test.md

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="search"
+        android:enabled="true"
+        android:icon="@android:drawable/ic_menu_search"
+        android:shortcutShortLabel="@string/shortcut_search_short"
+        android:shortcutLongLabel="@string/shortcut_search_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.alldebrid.app"
+            android:targetClass="com.alldebrid.app.MainActivity"
+            android:data="alldebrid://search"/>
+        <categories android:name="android.shortcut.conversation"/>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="continue_watching"
+        android:enabled="true"
+        android:icon="@android:drawable/ic_media_play"
+        android:shortcutShortLabel="@string/shortcut_continue_short"
+        android:shortcutLongLabel="@string/shortcut_continue_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.alldebrid.app"
+            android:targetClass="com.alldebrid.app.MainActivity"
+            android:data="alldebrid://continue"/>
+        <categories android:name="android.shortcut.conversation"/>
+    </shortcut>
+
+</shortcuts>

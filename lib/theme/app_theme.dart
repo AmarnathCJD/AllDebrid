@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 /// AllDebrid - Refined Dark Theme with Warm Amber Accents
 /// Professional, clean, intentional design
@@ -115,7 +116,7 @@ class AppTheme {
       brightness: isDark ? Brightness.dark : Brightness.light,
       primaryColor: primaryColor,
       scaffoldBackgroundColor: bgColor,
-      fontFamily: 'Roboto',
+      fontFamily: GoogleFonts.poppins().fontFamily,
       colorScheme: isDark
           ? ColorScheme.dark(
               primary: primaryColor,
@@ -265,19 +266,21 @@ class AppTheme {
       ),
       textTheme: TextTheme(
         headlineLarge: TextStyle(
-            fontSize: 26,
+            fontSize: 22,
             fontWeight: FontWeight.w700,
             color: textP,
-            letterSpacing: -0.5),
+            letterSpacing: -0.5,
+            fontFamily: 'Roboto'),
         headlineMedium: TextStyle(
-            fontSize: 20,
+            fontSize: 18,
             fontWeight: FontWeight.w600,
             color: textP,
-            letterSpacing: -0.3),
+            letterSpacing: -0.3,
+            fontFamily: 'Roboto'),
         headlineSmall:
-            TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: textP),
+            TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textP, fontFamily: 'Roboto'),
         titleLarge:
-            TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textP),
+            TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: textP, fontFamily: 'Roboto'),
         titleMedium:
             TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: textP),
         titleSmall:

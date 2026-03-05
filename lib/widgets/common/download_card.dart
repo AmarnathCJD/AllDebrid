@@ -1,10 +1,12 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/helpers.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/imdb_service.dart';
+import '../../screens/player/player_screen.dart';
 
 class DownloadCard extends StatelessWidget {
   final String filename;
@@ -35,6 +37,9 @@ class DownloadCard extends StatelessWidget {
   final String? ratingCount;
   final int? season;
   final int? episode;
+  final String? production;
+  final String? backdropUrl;
+  final String? releaseDate;
 
   const DownloadCard({
     super.key,
@@ -66,6 +71,9 @@ class DownloadCard extends StatelessWidget {
     this.ratingCount,
     this.season,
     this.episode,
+    this.production,
+    this.backdropUrl,
+    this.releaseDate,
   });
 
   @override
@@ -74,312 +82,363 @@ class DownloadCard extends StatelessWidget {
     final isActive = !isCompleted && !isFailed && !isPaused;
     final bool hasPoster = posterUrl != null && posterUrl!.isNotEmpty;
 
-    return Container(
-      height: hasPoster ? 140 : 90, // Compact height if no poster
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: AppTheme.cardColor,
-        borderRadius: BorderRadius.circular(6),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+    return Slidable(
+      key: ValueKey(filename),
+      startActionPane: isCompleted
+          ? ActionPane(
+              motion: const StretchMotion(),
+              children: [
+                SlidableAction(
+                  onPressed: (context) {
+                    if (onStream != null) onStream!();
+                  },
+                  backgroundColor: AppTheme.accentColor,
+                  foregroundColor: Colors.white,
+                  icon: Icons.play_circle_filled_rounded,
+                  label: 'Play',
+                ),
+                if (onOpen != null)
+                  SlidableAction(
+                    onPressed: (context) => onOpen!(),
+                    backgroundColor: AppTheme.successColor,
+                    foregroundColor: Colors.white,
+                    icon: Icons.folder_open_rounded,
+                    label: 'Open',
+                  ),
+              ],
+            )
+          : null,
+      endActionPane: ActionPane(
+        motion: const StretchMotion(),
+        children: [
+          SlidableAction(
+            onPressed: (context) {
+              if (isCompleted && onDelete != null) {
+                onDelete!();
+              } else if (onCancel != null) {
+                onCancel!();
+              }
+            },
+            backgroundColor: AppTheme.errorColor,
+            foregroundColor: Colors.white,
+            icon:
+                isCompleted ? Icons.delete_outline_rounded : Icons.stop_rounded,
+            label: isCompleted ? 'Delete' : 'Cancel',
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: Row(
-          children: [
-            // Left Side: Poster or Compact Icon
-            if (hasPoster)
-              GestureDetector(
-                onTap: () => _showImdbDetails(context, statusColor),
-                child: Container(
-                  width: 100,
-                  height: double.infinity,
-                  decoration: BoxDecoration(
-                    image: DecorationImage(
-                      image: CachedNetworkImageProvider(posterUrl!),
-                      fit: BoxFit.cover,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.5),
-                        blurRadius: 10,
-                        offset: const Offset(5, 0),
-                      ),
-                    ],
-                  ),
+      child: Container(
+        height: hasPoster ? 140 : 90, // Compact height if no poster
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: AppTheme.cardColor,
+          borderRadius: BorderRadius.circular(6),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.5),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: Row(
+            children: [
+              // Left Side: Poster or Compact Icon
+              if (hasPoster)
+                GestureDetector(
+                  onTap: () => _showImdbDetails(context, statusColor),
                   child: Container(
+                    width: 100,
+                    height: double.infinity,
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.centerRight,
-                        end: Alignment.centerLeft,
-                        colors: [
-                          Colors.black.withValues(alpha: 0.3),
-                          Colors.transparent,
-                        ],
+                      image: DecorationImage(
+                        image: CachedNetworkImageProvider(posterUrl!),
+                        fit: BoxFit.cover,
                       ),
-                    ),
-                    // Hint overlay on hover/press could be added here,
-                    // but for now we just make it clickable.
-                  ),
-                ),
-              )
-            else
-              Container(
-                width: 70,
-                height: double.infinity,
-                color: AppTheme.surfaceColor,
-                child: Center(
-                  child: _buildExtensionBadge(),
-                ),
-              ),
-
-            // Right Side: Content (The "Remaining Part" with BG)
-            Expanded(
-              child: Stack(
-                children: [
-                  // Subtle Backround Pattern or Color
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppTheme
-                          .surfaceColor, // Lighter/Darker separate from Poster
-                    ),
-                  ),
-
-                  // Active Progress Overlay (Subtle)
-                  if (isActive && progress > 0)
-                    Positioned(
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: MediaQuery.of(context).size.width *
-                          0.7 *
-                          progress, // rough estimate width
-                      child:
-                          Container(color: statusColor.withValues(alpha: 0.03)),
-                    ),
-
-                  // Content
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Title & Status
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                imdbTitle ?? filename,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppTheme.textPrimary,
-                                  height: 1.1,
-                                ),
-                                maxLines:
-                                    hasPoster ? 2 : 1, // 1 line for compact
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            // Mini Status Badge top-right
-                            Container(
-                              margin: const EdgeInsets.only(left: 8),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: statusColor.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                _getStatusText(),
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  color: statusColor,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        // Year (Only if plain text has space i.e. hasPoster)
-                        if (hasPoster && imdbYear != null) ...[
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Text(
-                                imdbYear!,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color:
-                                      AppTheme.textMuted.withValues(alpha: 0.8),
-                                ),
-                              ),
-                              if (season != null && episode != null) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.primaryColor
-                                        .withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}',
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                      color: AppTheme.primaryColor,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
-
-                        const Spacer(),
-
-                        // Bottom Row: Stats + Actions fused for compact
-                        Row(
-                          children: [
-                            if (totalSize > 0)
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    isCompleted
-                                        ? formatBytes(totalSize)
-                                        : '${formatBytes(downloadedSize)} / ${formatBytes(totalSize)}',
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.textMuted,
-                                    ),
-                                  ),
-                                  if (isActive || isPaused) ...[
-                                    const SizedBox(height: 2),
-                                    Container(
-                                      width: 80,
-                                      height: 3,
-                                      decoration: BoxDecoration(
-                                          color: AppTheme.borderColor
-                                              .withValues(alpha: 0.3),
-                                          borderRadius:
-                                              BorderRadius.circular(2)),
-                                      child: FractionallySizedBox(
-                                          alignment: Alignment.centerLeft,
-                                          widthFactor: progress.clamp(0.0, 1.0),
-                                          child: Container(
-                                              decoration: BoxDecoration(
-                                                  color: statusColor,
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                          2)))),
-                                    ),
-                                    if (isActive && speed > 0) ...[
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          Icon(Icons.arrow_downward_rounded,
-                                              size: 10,
-                                              color: AppTheme.accentColor),
-                                          const SizedBox(width: 2),
-                                          Text(
-                                            formatSpeed(speed),
-                                            style: const TextStyle(
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.w700,
-                                                color: AppTheme.accentColor),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          Icon(Icons.timer_outlined,
-                                              size: 10,
-                                              color: AppTheme.textMuted),
-                                          const SizedBox(width: 2),
-                                          Text(
-                                            formatEta(
-                                                totalSize - downloadedSize,
-                                                speed),
-                                            style: const TextStyle(
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.w500,
-                                                color: AppTheme.textMuted),
-                                          ),
-                                        ],
-                                      ),
-                                    ]
-                                  ] else if (speed > 0) ...[
-                                    Row(
-                                      children: [
-                                        Icon(Icons.speed_rounded,
-                                            size: 10,
-                                            color: AppTheme.textMuted),
-                                        const SizedBox(width: 2),
-                                        Text(formatSpeed(speed),
-                                            style: const TextStyle(
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppTheme.textMuted)),
-                                      ],
-                                    )
-                                  ]
-                                ],
-                              ),
-
-                            const Spacer(),
-
-                            // Actions
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (isCompleted) ...[
-                                  if (onStream != null)
-                                    _buildIconBtn(
-                                        Icons.play_circle_filled_rounded,
-                                        AppTheme.accentColor,
-                                        onStream!),
-                                  if (onOpen != null)
-                                    _buildIconBtn(Icons.folder_open_rounded,
-                                        AppTheme.successColor, onOpen!),
-                                  _buildIconBtn(Icons.delete_outline_rounded,
-                                      AppTheme.textMuted, onDelete!),
-                                ] else ...[
-                                  if (isPaused)
-                                    _buildIconBtn(Icons.play_arrow_rounded,
-                                        AppTheme.successColor, onResume!)
-                                  else if (!isActive && !isFailed)
-                                    _buildIconBtn(Icons.pause_rounded,
-                                        AppTheme.warningColor, onPause!)
-                                  else if (isFailed)
-                                    _buildIconBtn(Icons.refresh_rounded,
-                                        AppTheme.accentColor, onResume!)
-                                  else // Downloading
-                                    _buildIconBtn(Icons.pause_rounded,
-                                        AppTheme.warningColor, onPause!),
-                                  const SizedBox(width: 4),
-                                  _buildIconBtn(Icons.stop_rounded,
-                                      AppTheme.errorColor, onCancel!),
-                                ],
-                              ],
-                            ),
-                          ],
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.5),
+                          blurRadius: 10,
+                          offset: const Offset(5, 0),
                         ),
                       ],
                     ),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.centerRight,
+                          end: Alignment.centerLeft,
+                          colors: [
+                            Colors.black.withValues(alpha: 0.3),
+                            Colors.transparent,
+                          ],
+                        ),
+                      ),
+                      // Hint overlay on hover/press could be added here,
+                      // but for now we just make it clickable.
+                    ),
                   ),
-                ],
+                )
+              else
+                Container(
+                  width: 70,
+                  height: double.infinity,
+                  color: AppTheme.surfaceColor,
+                  child: Center(
+                    child: _buildExtensionBadge(),
+                  ),
+                ),
+
+              // Right Side: Content (The "Remaining Part" with BG)
+              Expanded(
+                child: Stack(
+                  children: [
+                    // Subtle Backround Pattern or Color
+                    Container(
+                      decoration: BoxDecoration(
+                        color: AppTheme
+                            .surfaceColor, // Lighter/Darker separate from Poster
+                      ),
+                    ),
+
+                    // Active Progress Overlay (Subtle)
+                    if (isActive && progress > 0)
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: MediaQuery.of(context).size.width *
+                            0.7 *
+                            progress, // rough estimate width
+                        child: Container(
+                            color: statusColor.withValues(alpha: 0.03)),
+                      ),
+
+                    // Content
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Title & Status
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  imdbTitle ?? filename,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppTheme.textPrimary,
+                                    height: 1.1,
+                                  ),
+                                  maxLines:
+                                      hasPoster ? 2 : 1, // 1 line for compact
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              // Mini Status Badge top-right
+                              Container(
+                                margin: const EdgeInsets.only(left: 8),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: statusColor.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  _getStatusText(),
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w800,
+                                    color: statusColor,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          // Year (Only if plain text has space i.e. hasPoster)
+                          if (hasPoster && imdbYear != null) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Text(
+                                  imdbYear!,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppTheme.textMuted
+                                        .withValues(alpha: 0.8),
+                                  ),
+                                ),
+                                if (season != null && episode != null) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.primaryColor
+                                          .withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppTheme.primaryColor,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
+
+                          const Spacer(),
+
+                          // Bottom Row: Stats + Actions fused for compact
+                          Row(
+                            children: [
+                              if (totalSize > 0)
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      isCompleted
+                                          ? formatBytes(totalSize)
+                                          : '${formatBytes(downloadedSize)} / ${formatBytes(totalSize)}',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppTheme.textMuted,
+                                      ),
+                                    ),
+                                    if (isActive || isPaused) ...[
+                                      const SizedBox(height: 2),
+                                      Container(
+                                        width: 80,
+                                        height: 3,
+                                        decoration: BoxDecoration(
+                                            color: AppTheme.borderColor
+                                                .withValues(alpha: 0.3),
+                                            borderRadius:
+                                                BorderRadius.circular(2)),
+                                        child: FractionallySizedBox(
+                                            alignment: Alignment.centerLeft,
+                                            widthFactor:
+                                                progress.clamp(0.0, 1.0),
+                                            child: Container(
+                                                decoration: BoxDecoration(
+                                                    color: statusColor,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            2)))),
+                                      ),
+                                      if (isActive && speed > 0) ...[
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            Icon(Icons.arrow_downward_rounded,
+                                                size: 10,
+                                                color: AppTheme.accentColor),
+                                            const SizedBox(width: 2),
+                                            Text(
+                                              formatSpeed(speed),
+                                              style: const TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: AppTheme.accentColor),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Icon(Icons.timer_outlined,
+                                                size: 10,
+                                                color: AppTheme.textMuted),
+                                            const SizedBox(width: 2),
+                                            Text(
+                                              formatEta(
+                                                  totalSize - downloadedSize,
+                                                  speed),
+                                              style: const TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.w500,
+                                                  color: AppTheme.textMuted),
+                                            ),
+                                          ],
+                                        ),
+                                      ]
+                                    ] else if (speed > 0) ...[
+                                      Row(
+                                        children: [
+                                          Icon(Icons.speed_rounded,
+                                              size: 10,
+                                              color: AppTheme.textMuted),
+                                          const SizedBox(width: 2),
+                                          Text(formatSpeed(speed),
+                                              style: const TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppTheme.textMuted)),
+                                        ],
+                                      )
+                                    ]
+                                  ],
+                                ),
+
+                              const Spacer(),
+
+                              // Actions
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (isCompleted) ...[
+                                    if (onStream != null)
+                                      _buildIconBtn(
+                                          Icons.play_circle_filled_rounded,
+                                          AppTheme.accentColor,
+                                          onStream!),
+                                    if (onOpen != null)
+                                      _buildIconBtn(Icons.folder_open_rounded,
+                                          AppTheme.successColor, onOpen!),
+                                    _buildIconBtn(Icons.delete_outline_rounded,
+                                        AppTheme.textMuted, onDelete!),
+                                  ] else ...[
+                                    if (onStream != null)
+                                      _buildIconBtn(
+                                          Icons.play_circle_filled_rounded,
+                                          AppTheme.accentColor,
+                                          onStream!),
+                                    if (isPaused)
+                                      _buildIconBtn(Icons.play_arrow_rounded,
+                                          AppTheme.successColor, onResume!)
+                                    else if (!isActive && !isFailed)
+                                      _buildIconBtn(Icons.pause_rounded,
+                                          AppTheme.warningColor, onPause!)
+                                    else if (isFailed)
+                                      _buildIconBtn(Icons.refresh_rounded,
+                                          AppTheme.accentColor, onResume!)
+                                    else // Downloading
+                                      _buildIconBtn(Icons.pause_rounded,
+                                          AppTheme.warningColor, onPause!),
+                                    _buildIconBtn(Icons.stop_rounded,
+                                        AppTheme.errorColor, onCancel!),
+                                  ],
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -390,11 +449,11 @@ class DownloadCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(6), // Reverted to 6
+        borderRadius: BorderRadius.circular(6),
         child: Padding(
-          padding: const EdgeInsets.all(
-              8), // Increased padding for bigger "touch" (was 6)
-          child: Icon(icon, size: 26, color: color), // Increased size (was 22)
+          padding:
+              const EdgeInsets.all(4), // Reduced padding for tighter alignment
+          child: Icon(icon, size: 26, color: color),
         ),
       ),
     );
@@ -473,19 +532,24 @@ class DownloadCard extends StatelessWidget {
     String? dRatingCount = ratingCount;
     String? dVideoId = videoId;
     String? dYear = imdbYear;
+    String? dProduction = production;
+    String? dBackdrop = backdropUrl;
+    String? dReleaseDate = releaseDate;
+    String? dCountry;
+    String? dLanguages;
     String dTitle = imdbTitle ?? filename;
 
-    // 2. Check if we need to fetch missing data (Lazy Load)
-    // We fetch if we have an ID/Title but missing critical info like Rating/Desc
     if ((dRating == null || dDesc == null) &&
         (imdbId != null || imdbTitle != null)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Fetching full details...'),
-          duration: Duration(seconds: 1),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      debugPrint('--- IMDB Details Debug ---');
+      debugPrint('Title: $dTitle');
+      debugPrint('ID: $imdbId');
+      debugPrint('Rating: $dRating');
+      debugPrint('Desc: $dDesc');
+      debugPrint('Poster: $posterUrl');
+      debugPrint('Prod: $dProduction');
+      debugPrint('Backdrop: $dBackdrop');
+      debugPrint('Release: $dReleaseDate');
 
       try {
         final service = ImdbService();
@@ -514,9 +578,26 @@ class DownloadCard extends StatelessWidget {
           if (details.videoId != null) dVideoId = details.videoId;
           if (details.year.isNotEmpty) dYear = details.year;
           if (details.title.isNotEmpty) dTitle = details.title;
+          if (details.production != null) dProduction = details.production;
+          if (details.backdropUrl != null) dBackdrop = details.backdropUrl;
+          if (details.releaseDate != null) dReleaseDate = details.releaseDate;
+          if (details.country != null) dCountry = details.country;
+          if (details.languages != null) dLanguages = details.languages;
         }
+
+        debugPrint('--- Fetched Details ---');
+        debugPrint('Rating: $dRating');
+        debugPrint('Year: $dYear');
+        debugPrint('Release: $dReleaseDate');
+        debugPrint('Duration: $dDuration');
+        debugPrint('Genres: $dGenres');
+        debugPrint('Desc: $dDesc');
+        debugPrint('Prod: $dProduction');
+        debugPrint('Backdrop: $dBackdrop');
+        debugPrint('Country: $dCountry');
+        debugPrint('Langs: $dLanguages');
       } catch (e) {
-        // Ignore error, show what we have
+        debugPrint('Error fetching details: $e');
       }
     }
 
@@ -542,7 +623,12 @@ class DownloadCard extends StatelessWidget {
             dDuration,
             dStars,
             dRatingCount,
-            dVideoId),
+            dVideoId,
+            dProduction,
+            dBackdrop,
+            dReleaseDate,
+            dCountry,
+            dLanguages),
       ),
     );
   }
@@ -559,241 +645,428 @@ class DownloadCard extends StatelessWidget {
       String? duration,
       String? cast,
       String? ratingCount,
-      String? videoId) {
+      String? videoId,
+      String? production,
+      String? backdrop,
+      String? releaseDate,
+      String? country,
+      String? languages) {
     return Container(
       decoration: BoxDecoration(
-        color:
-            AppTheme.cardColor.withValues(alpha: 0.95), // Slightly more opaque
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
-            blurRadius: 40,
-            spreadRadius: 0,
-            offset: const Offset(0, -10),
-          ),
-        ],
+        color: AppTheme.cardColor,
       ),
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-          child: SingleChildScrollView(
+      child: Stack(
+        children: [
+          // Content
+          ListView(
             controller: controller,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min, // Wrap content
+            padding: EdgeInsets.zero,
+            children: [
+              // 1. Header Section (Backdrop + Poster + Title)
+              Stack(
+                alignment: Alignment.bottomLeft,
                 children: [
-                  // Handle
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(2),
+                  // Backdrop Image
+                  Container(
+                    height: 220,
+                    width: double.infinity,
+                    foregroundDecoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          AppTheme.cardColor.withValues(alpha: 0.2),
+                          AppTheme.cardColor,
+                        ],
+                        stops: const [0.0, 0.6, 1.0],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  // ... (Rest of the UI using parameters instead of class fields)
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Poster (Left Side - Small)
-                      Container(
-                        height: 120, // Smaller
-                        width: 80,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(6),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.4),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                          image: DecorationImage(
-                            image: CachedNetworkImageProvider(posterUrl!),
+                    child: backdrop != null
+                        ? CachedNetworkImage(
+                            imageUrl: backdrop,
                             fit: BoxFit.cover,
+                            placeholder: (_, __) =>
+                                Container(color: Colors.black12),
+                            errorWidget: (_, __, ___) =>
+                                Container(color: Colors.black12),
+                          )
+                        : Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  statusColor.withValues(alpha: 0.2),
+                                  AppTheme.cardColor,
+                                ],
+                              ),
+                            ),
+                          ),
+                  ),
+
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        // Poster (Elevated)
+                        Container(
+                          width: 120,
+                          height: 170,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Colors.black45,
+                                blurRadius: 16,
+                                offset: Offset(0, 8),
+                              )
+                            ],
+                            image: DecorationImage(
+                              image:
+                                  CachedNetworkImageProvider(posterUrl ?? ''),
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        // Title & Metadata
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white,
+                                  height: 1.1,
+                                  letterSpacing: -0.5,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 4,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  if (rating != null)
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.star_rounded,
+                                            color: Colors.amber, size: 14),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          rating,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w800,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  if (duration != null)
+                                    Text(
+                                      duration,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                        color:
+                                            Colors.white.withValues(alpha: 0.7),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (videoId != null)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 30, vertical: 10),
+                  child: Row(
+                    children: [
+                      // Watch Trailer
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () =>
+                              _launchTrailer(context, videoId, title),
+                          icon: const Icon(Icons.play_arrow_rounded,
+                              color: Colors.black),
+                          label: const Text('TRAILER',
+                              style: TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(6)),
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      // Info (Right Side)
+                      const SizedBox(width: 12),
+                      // Play File (Main Action)
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: AppTheme.textPrimary,
-                                height: 1.1,
-                                letterSpacing: -0.5,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 6),
-                            if (year != null) ...[
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: statusColor.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  year,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: statusColor,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                            ],
-                            // Rating
-                            if (rating != null)
-                              Row(
-                                children: [
-                                  const Icon(Icons.star_rounded,
-                                      color: Colors.amber, size: 16),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    rating,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w800,
-                                      color: AppTheme.textPrimary,
-                                    ),
-                                  ),
-                                  Text(
-                                    ' / 10',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.textMuted
-                                          .withValues(alpha: 0.7),
-                                    ),
-                                  ),
-                                  if (ratingCount != null) ...[
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      '($ratingCount)',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: AppTheme.textMuted
-                                            .withValues(alpha: 0.5),
-                                      ),
-                                    ),
-                                  ]
-                                ],
-                              ),
-
-                            if (duration != null || genres != null) ...[
-                              const SizedBox(height: 8),
-                              Text(
-                                [
-                                  if (duration != null) duration,
-                                  if (genres != null) genres
-                                ].join(' • '),
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    color: AppTheme.textMuted
-                                        .withValues(alpha: 0.8),
-                                    fontWeight: FontWeight.w500),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ],
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            if (onStream != null) {
+                              Navigator.pop(context);
+                              onStream!();
+                            }
+                          },
+                          icon: const Icon(Icons.movie_rounded,
+                              color: Colors.white),
+                          label: const Text('PLAY MOVIE',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryColor,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(6)),
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
                         ),
                       ),
                     ],
                   ),
+                ),
 
-                  // Watch Trailer Button (Full width)
-                  if (videoId != null) ...[
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => _launchTrailer(context, videoId),
-                        icon: const Icon(Icons.play_circle_fill_rounded,
-                            size: 16),
-                        label: const Text('WATCH TRAILER',
-                            style: TextStyle(
-                                fontSize: 12, fontWeight: FontWeight.bold)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white.withValues(alpha: 0.1),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          minimumSize: const Size(0, 36),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6)),
+              if (genres != null)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: genres.split(',').map((g) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.15)),
+                        ),
+                        child: Text(
+                          g.trim(),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color:
+                                AppTheme.textSecondary.withValues(alpha: 0.9),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+
+              const SizedBox(height: 16),
+
+              if (desc != null && desc.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'PLOT',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.textMuted,
+                          letterSpacing: 1.0,
                         ),
                       ),
-                    )
-                  ],
-
-                  // Description / Plot
-                  if (desc != null) ...[
-                    const SizedBox(height: 16),
-                    Text(
-                      desc,
-                      style: TextStyle(
-                        fontSize: 13,
-                        height: 1.4,
-                        color: AppTheme.textSecondary.withValues(alpha: 0.9),
+                      const SizedBox(height: 8),
+                      Text(
+                        desc
+                            .replaceAll("&quot;", "'")
+                            .replaceAll("&amp;", "&")
+                            .replaceAll("&#39;", "'")
+                            .replaceAll("&#39;", "'")
+                            .replaceAll("&apos;", "'")
+                            .replaceAll("&gt;", ">")
+                            .replaceAll("&lt;", "<"),
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.6,
+                          color: AppTheme.textSecondary.withValues(alpha: 0.9),
+                        ),
                       ),
-                      maxLines: 4,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+                    ],
+                  ),
+                ),
 
-                  if (cast != null) ...[
-                    const SizedBox(height: 12),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Cast: ',
-                            style: TextStyle(
-                                color: AppTheme.textMuted,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold)),
-                        Expanded(
-                            child: Text(cast,
+              const SizedBox(height: 24),
+              if (cast != null && cast.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'CAST',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.textMuted,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: cast.split(',').take(3).map((c) {
+                          return Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircleAvatar(
+                                radius: 14,
+                                backgroundColor:
+                                    Colors.white.withValues(alpha: 0.1),
+                                child: Text(
+                                  c.trim()[0],
+                                  style: const TextStyle(
+                                      fontSize: 10, color: Colors.white),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                c.trim(),
                                 style: const TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontSize: 12))),
-                      ],
-                    ),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppTheme.textSecondary,
+                                ),
+                              ),
+                            ],
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+
+              const SizedBox(height: 24),
+
+              // 6. Additional Info (Grid-like)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (production != null) ...[
+                      _buildInfoRow('PRODUCTION', production),
+                      const SizedBox(height: 16),
+                    ],
+                    if (country != null) ...[
+                      _buildInfoRow('COUNTRY', country),
+                      const SizedBox(height: 16),
+                    ],
+                    if (languages != null) ...[
+                      _buildInfoRow('LANGUAGES', languages),
+                      const SizedBox(height: 16),
+                    ],
+                    // Only show header if content exists - simplified for now
                   ],
-                  const SizedBox(height: 16),
-                ],
+                ),
+              ),
+
+              const SizedBox(height: 40),
+            ],
+          ),
+
+          // Drag Handle
+          Align(
+            alignment: Alignment.topCenter,
+            child: Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
 
-  Future<void> _launchTrailer(BuildContext context, String videoId) async {
-    final uri = Uri.parse('https://www.imdb.com/video/$videoId');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Could not launch trailer')));
+  Widget _buildInfoRow(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            color: AppTheme.textMuted,
+            letterSpacing: 1.0,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 13,
+            color: AppTheme.textSecondary,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _launchTrailer(
+      BuildContext context, String videoId, String movieTitle) async {
+    final service = ImdbService();
+    final streamUrl = await service.fetchTrailerStreamUrl(videoId);
+
+    if (context.mounted) {
+      if (streamUrl != null) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PlayerScreen(
+              url: streamUrl,
+              title: '$movieTitle - Trailer',
+              isLocal: false,
+            ),
+          ),
+        );
+      } else {
+        final uri = Uri.parse('https://www.imdb.com/video/$videoId');
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Could not launch trailer')));
+        }
       }
     }
   }

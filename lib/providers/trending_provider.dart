@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import '../services/trending_service.dart';
+import '../services/rivestream_service.dart';
 
 class TrendingItem {
   final String id;
@@ -20,7 +20,7 @@ class TrendingItem {
 }
 
 class TrendingProvider extends ChangeNotifier {
-  final _trendingService = TrendingService();
+  final _riveService = RiveStreamService();
 
   List<TrendingItem> _trendingMovies = [];
   List<TrendingItem> _trendingTVShows = [];
@@ -28,116 +28,92 @@ class TrendingProvider extends ChangeNotifier {
   List<TrendingItem> _amazonPrimeShows = [];
 
   bool _isLoading = false;
+  bool _hasError = false;
 
   List<TrendingItem> get trendingMovies => _trendingMovies;
   List<TrendingItem> get trendingTVShows => _trendingTVShows;
   List<TrendingItem> get netflixShows => _netflixShows;
   List<TrendingItem> get amazonPrimeShows => _amazonPrimeShows;
   bool get isLoading => _isLoading;
+  bool get hasError => _hasError;
 
   Future<void> loadTrendingData() async {
     _isLoading = true;
+    _hasError = false;
     notifyListeners();
 
     try {
-      final moviesFuture = _trendingService.fetchTrendingMovies();
-      final tvShowsFuture = _trendingService.fetchTrendingTVShows();
-      final netflixShowsFuture = _trendingService.fetchNetflixShows();
-      final netflixMoviesFuture = _trendingService.fetchNetflixMovies();
-      final amazonShowsFuture = _trendingService.fetchAmazonPrimeShows();
-      final amazonMoviesFuture = _trendingService.fetchAmazonPrimeMovies();
+      // Fetch Trending
+      final trendingResults = await _riveService.getTrending(page: 1);
 
-      final results = await Future.wait([
-        moviesFuture,
-        tvShowsFuture,
-        netflixShowsFuture,
-        netflixMoviesFuture,
-        amazonShowsFuture,
-        amazonMoviesFuture,
-      ]);
-
-      _trendingMovies = (results[0] as List)
-          .map((item) => TrendingItem(
-                id: item.id,
-                title: item.title,
-                posterUrl: item.posterUrl,
-                releaseDate: item.releaseDate,
-                rating: item.rating,
-                mediaType: item.mediaType,
-              ))
+      // Filter movies and TV shows
+      _trendingMovies = trendingResults
+          .where((item) => item.mediaType == 'movie')
+          .map(_mapToTrendingItem)
           .toList();
 
-      _trendingTVShows = (results[1] as List)
-          .map((item) => TrendingItem(
-                id: item.id,
-                title: item.title,
-                posterUrl: item.posterUrl,
-                releaseDate: item.releaseDate,
-                rating: item.rating,
-                mediaType: item.mediaType,
-              ))
+      _trendingTVShows = trendingResults
+          .where((item) => item.mediaType == 'tv')
+          .map(_mapToTrendingItem)
           .toList();
 
-      // Mix Netflix TV and Movies
-      final netflixShows = (results[2] as List)
-          .map((item) => TrendingItem(
-                id: item.id,
-                title: item.title,
-                posterUrl: item.posterUrl,
-                releaseDate: item.releaseDate,
-                rating: item.rating,
-                mediaType: item.mediaType,
-              ))
+      // Fetch Netflix Content (Provider ID 8)
+      // Flatrate
+      final netflixResults = await _riveService.getDiscoverContent(
+        mediaType: 'tv',
+        watchProviders: '8',
+        monetizationTypes: 'flatrate',
+      );
+      // We can also fetch movies if we want to mix them
+      final netflixMoviesResults = await _riveService.getDiscoverContent(
+        mediaType: 'movie',
+        watchProviders: '8',
+        monetizationTypes: 'flatrate',
+      );
+
+      _netflixShows = [...netflixResults, ...netflixMoviesResults]
+          .map(_mapToTrendingItem)
           .toList();
 
-      final netflixMovies = (results[3] as List)
-          .map((item) => TrendingItem(
-                id: item.id,
-                title: item.title,
-                posterUrl: item.posterUrl,
-                releaseDate: item.releaseDate,
-                rating: item.rating,
-                mediaType: item.mediaType,
-              ))
+      // Fetch Amazon Prime Content (Provider ID 119)
+      final amazonResults = await _riveService.getDiscoverContent(
+        mediaType: 'tv',
+        watchProviders: '119',
+        monetizationTypes: 'flatrate',
+      );
+      final amazonMoviesResults = await _riveService.getDiscoverContent(
+        mediaType: 'movie',
+        watchProviders: '119',
+        monetizationTypes: 'flatrate',
+      );
+
+      _amazonPrimeShows = [...amazonResults, ...amazonMoviesResults]
+          .map(_mapToTrendingItem)
           .toList();
 
-      _netflixShows = [...netflixShows, ...netflixMovies];
-
-      // Mix Prime TV and Movies
-      final amazonShows = (results[4] as List)
-          .map((item) => TrendingItem(
-                id: item.id,
-                title: item.title,
-                posterUrl: item.posterUrl,
-                releaseDate: item.releaseDate,
-                rating: item.rating,
-                mediaType: item.mediaType,
-              ))
-          .toList();
-
-      final amazonMovies = (results[5] as List)
-          .map((item) => TrendingItem(
-                id: item.id,
-                title: item.title,
-                posterUrl: item.posterUrl,
-                releaseDate: item.releaseDate,
-                rating: item.rating,
-                mediaType: item.mediaType,
-              ))
-          .toList();
-
-      _amazonPrimeShows = [...amazonShows, ...amazonMovies];
-
-      // Shuffle each list
+      // Shuffle
       _trendingMovies.shuffle();
       _trendingTVShows.shuffle();
       _netflixShows.shuffle();
       _amazonPrimeShows.shuffle();
     } catch (e) {
       print('[TRENDING PROVIDER] Error loading trending data: $e');
+      _hasError = true;
+      // Keep existing cached data on error
     } finally {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  TrendingItem _mapToTrendingItem(RiveStreamMedia item) {
+    return TrendingItem(
+      id: item.id.toString(),
+      title: item.displayTitle,
+      posterUrl: item.fullPosterUrl,
+      releaseDate: item.displayDate,
+      rating: item.voteAverage,
+      mediaType: item.mediaType,
+    );
   }
 }

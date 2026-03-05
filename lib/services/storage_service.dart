@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/download.dart';
 
-/// Storage Service for app data persistence
 class StorageService {
   static const String _apiKeyKey = 'api_key';
   static const String _downloadsKey = 'downloads';
@@ -22,8 +21,6 @@ class StorageService {
     return _prefs!;
   }
 
-  // ==================== API KEY ====================
-
   Future<void> saveApiKey(String apiKey) async {
     await prefs.setString(_apiKeyKey, apiKey);
   }
@@ -41,8 +38,6 @@ class StorageService {
     return key != null && key.isNotEmpty;
   }
 
-  // ==================== DOWNLOADS ====================
-
   Future<void> saveDownloads(List<Download> downloads) async {
     final jsonList = downloads.map((d) => d.toJson()).toList();
     await prefs.setString(_downloadsKey, jsonEncode(jsonList));
@@ -55,8 +50,6 @@ class StorageService {
     final jsonList = jsonDecode(jsonString) as List;
     return jsonList.map((e) => Download.fromJson(e)).toList();
   }
-
-  // ==================== SETTINGS ====================
 
   Future<void> saveSetting(String key, dynamic value) async {
     final settings = getSettings();
@@ -75,8 +68,6 @@ class StorageService {
     return settings[key] as T? ?? defaultValue;
   }
 
-  // ==================== LINK HISTORY ====================
-
   Future<void> addToHistory(String link, String filename) async {
     final history = getHistory();
     history.insert(0, {
@@ -85,7 +76,6 @@ class StorageService {
       'timestamp': DateTime.now().toIso8601String(),
     });
 
-    // Keep only last 100 entries
     if (history.length > 100) {
       history.removeRange(100, history.length);
     }
@@ -102,8 +92,6 @@ class StorageService {
   Future<void> clearHistory() async {
     await prefs.remove(_historyKey);
   }
-
-  // ==================== CLEAR ALL ====================
 
   Future<void> clearAll() async {
     await prefs.clear();

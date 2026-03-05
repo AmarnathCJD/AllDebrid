@@ -8,7 +8,6 @@ import 'providers/navigation_provider.dart';
 import 'services/services.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
-import 'screens/settings/api_key_screen.dart';
 import 'screens/main_navigation.dart';
 
 void main() async {
@@ -156,10 +155,6 @@ class _AppWrapperState extends State<AppWrapper> {
 
     return Consumer<AppProvider>(
       builder: (context, appProvider, _) {
-        if (!appProvider.hasApiKey || appProvider.user == null) {
-          return const ApiKeyScreen();
-        }
-
         return const MainNavigation();
       },
     );

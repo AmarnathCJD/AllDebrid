@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/navigation_provider.dart';
+import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+
 import 'home/home_screen.dart';
 import 'magnets/magnets_screen.dart';
 import 'downloads/downloads_screen.dart';
-import 'torrents/torrent_search_screen.dart';
+import 'watchlist/watchlist_screen.dart';
 import 'settings/settings_screen.dart';
 
 class MainNavigation extends StatefulWidget {
@@ -16,73 +19,134 @@ class MainNavigation extends StatefulWidget {
 }
 
 class _MainNavigationState extends State<MainNavigation> {
-  final _screens = const [
-    HomeScreen(),
-    TorrentSearchScreen(),
-    MagnetsScreen(),
-    DownloadsScreen(),
-    SettingsScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final navigationProvider = Provider.of<NavigationProvider>(context);
-    final currentIndex = navigationProvider.currentIndex;
+    final appProvider = Provider.of<AppProvider>(context);
+    final hasKey = appProvider.hasApiKey;
+
+    final screens = hasKey
+        ? [
+            HomeScreen(key: HomeScreen.homeKey),
+            const WatchlistScreen(),
+            const MagnetsScreen(),
+            const DownloadsScreen(),
+            const SettingsScreen(),
+          ]
+        : [
+            HomeScreen(key: HomeScreen.homeKey),
+            const WatchlistScreen(),
+            const SettingsScreen(),
+          ];
+
+    int currentIndex = navigationProvider.currentIndex;
+    if (currentIndex >= screens.length) {
+      currentIndex = 0;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        navigationProvider.setIndex(0);
+      });
+    }
+
+    void onNavTap(int index) {
+      HapticFeedback.selectionClick();
+      if (index == 0 && currentIndex == 0) {
+        HomeScreen.homeKey.currentState?.scrollToTop();
+      } else {
+        navigationProvider.setIndex(index);
+      }
+    }
+
+    final navItems = hasKey
+        ? [
+            (Icons.home_outlined, Icons.home_rounded, 'Home'),
+            (Icons.bookmark_outlined, Icons.bookmark_rounded, 'Watchlist'),
+            (Icons.link_outlined, Icons.link_rounded, 'Magnets'),
+            (Icons.download_outlined, Icons.download_rounded, 'Downloads'),
+            (Icons.tune_outlined, Icons.tune_rounded, 'Settings'),
+          ]
+        : [
+            (Icons.home_outlined, Icons.home_rounded, 'Home'),
+            (Icons.bookmark_outlined, Icons.bookmark_rounded, 'Watchlist'),
+            (Icons.tune_outlined, Icons.tune_rounded, 'Settings'),
+          ];
 
     return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
+      backgroundColor: Colors.transparent,
+      extendBody: true,
       body: IndexedStack(
         index: currentIndex,
-        children: _screens,
+        children: screens,
       ),
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: AppTheme.surfaceColor,
-          border: Border(top: BorderSide(color: AppTheme.borderColor)),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _NavBarItem(
-                  icon: Icons.dashboard_outlined,
-                  activeIcon: Icons.dashboard,
-                  label: 'Home',
-                  isSelected: currentIndex == 0,
-                  onTap: () => navigationProvider.setIndex(0),
-                ),
-                _NavBarItem(
-                  icon: Icons.search_outlined,
-                  activeIcon: Icons.search,
-                  label: 'Search',
-                  isSelected: currentIndex == 1,
-                  onTap: () => navigationProvider.setIndex(1),
-                ),
-                _NavBarItem(
-                  icon: Icons.link_outlined,
-                  activeIcon: Icons.link,
-                  label: 'Magnets',
-                  isSelected: currentIndex == 2,
-                  onTap: () => navigationProvider.setIndex(2),
-                ),
-                _NavBarItem(
-                  icon: Icons.download_outlined,
-                  activeIcon: Icons.download,
-                  label: 'Downloads',
-                  isSelected: currentIndex == 3,
-                  onTap: () => navigationProvider.setIndex(3),
-                ),
-                _NavBarItem(
-                  icon: Icons.settings_outlined,
-                  activeIcon: Icons.settings,
-                  label: 'Settings',
-                  isSelected: currentIndex == 4,
-                  onTap: () => navigationProvider.setIndex(4),
-                ),
-              ],
+      bottomNavigationBar: _PremiumNavBar(
+        items: navItems,
+        currentIndex: currentIndex,
+        onTap: onNavTap,
+        primaryColor: AppTheme.primaryColor,
+      ),
+    );
+  }
+}
+
+class _PremiumNavBar extends StatelessWidget {
+  final List<(IconData, IconData, String)> items;
+  final int currentIndex;
+  final void Function(int) onTap;
+  final Color primaryColor;
+
+  const _PremiumNavBar({
+    required this.items,
+    required this.currentIndex,
+    required this.onTap,
+    required this.primaryColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    return Container(
+      color: AppTheme.backgroundColor,
+      padding: EdgeInsets.only(
+        left: 8,
+        right: 8,
+        bottom: bottomPadding + 6,
+        top: 6,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          height: 56,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceColor.withValues(alpha: 0.8),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: AppTheme.borderColor.withValues(alpha: 0.3),
+              width: 1,
             ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: List.generate(items.length, (i) {
+              final (inactiveIcon, activeIcon, label) = items[i];
+              final isSelected = i == currentIndex;
+              return Expanded(
+                child: _NavItemSimple(
+                  inactiveIcon: inactiveIcon,
+                  activeIcon: activeIcon,
+                  label: label,
+                  isSelected: isSelected,
+                  primaryColor: primaryColor,
+                  onTap: () => onTap(i),
+                ),
+              );
+            }),
           ),
         ),
       ),
@@ -90,55 +154,47 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 }
 
-class _NavBarItem extends StatelessWidget {
-  final IconData icon;
+class _NavItemSimple extends StatelessWidget {
+  final IconData inactiveIcon;
   final IconData activeIcon;
   final String label;
   final bool isSelected;
+  final Color primaryColor;
   final VoidCallback onTap;
 
-  const _NavBarItem({
-    required this.icon,
+  const _NavItemSimple({
+    required this.inactiveIcon,
     required this.activeIcon,
     required this.label,
     required this.isSelected,
+    required this.primaryColor,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = isSelected ? AppTheme.primaryColor : AppTheme.textMuted;
-
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? AppTheme.primaryColor.withValues(alpha: 0.15)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Icon(
-              isSelected ? activeIcon : icon,
-              size: 22,
-              color: color,
-            ),
+          Icon(
+            isSelected ? activeIcon : inactiveIcon,
+            size: 24,
+            color: isSelected ? primaryColor : AppTheme.textMuted,
           ),
           const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-              color: color,
+          if (isSelected)
+            Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(
+                color: primaryColor,
+                shape: BoxShape.circle,
+              ),
             ),
-          ),
         ],
       ),
     );

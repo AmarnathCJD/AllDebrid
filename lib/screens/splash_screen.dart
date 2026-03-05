@@ -1,213 +1,98 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../theme/app_theme.dart';
 
-class SplashScreen extends StatefulWidget {
+class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
-}
-
-class _SplashScreenState extends State<SplashScreen> {
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A), // Deep dark background
+      backgroundColor:
+          const Color(0xFF050505), // Ultra-dark, almost true black for OLED
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Background Tech Grid / Accents
-          Positioned(
-            top: -100,
-            right: -50,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppTheme.primaryColor.withValues(alpha: 0.05),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.primaryColor.withValues(alpha: 0.1),
-                    blurRadius: 100,
-                    spreadRadius: 20,
-                  ),
-                ],
-              ),
-            ).animate().fadeIn(duration: 800.ms),
-          ),
-          Positioned(
-            bottom: -50,
-            left: -50,
-            child: Container(
-              width: 200,
-              height: 200,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppTheme.accentColor.withValues(alpha: 0.05),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.accentColor.withValues(alpha: 0.1),
-                    blurRadius: 80,
-                    spreadRadius: 10,
-                  ),
-                ],
-              ),
-            )
-                .animate()
-                .fadeIn(duration: 800.ms)
-                .slide(begin: const Offset(-0.2, 0.2)),
-          ),
-
-          // Main Content
+          // Centered Content
           Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Cyber Icon Container
-                Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFF151515),
-                    border: Border.all(
-                      color: AppTheme.primaryColor.withValues(alpha: 0.3),
-                      width: 2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppTheme.primaryColor.withValues(alpha: 0.2),
-                        blurRadius: 30,
-                        spreadRadius: 0,
-                      ),
-                    ],
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      // Inner Glow
-                      Container(
-                        width: 90,
-                        height: 90,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(
-                            colors: [
-                              AppTheme.primaryColor.withValues(alpha: 0.4),
-                              Colors.transparent,
-                            ],
-                          ),
-                        ),
-                      ),
-                      // Icon
-                      const Icon(
-                        Icons.cloud_download_rounded,
-                        size: 50,
+                // Minimalist Typographical Logo
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'ALL',
+                      style: GoogleFonts.outfit(
+                        fontSize: 42,
+                        fontWeight: FontWeight.w900,
                         color: Colors.white,
+                        letterSpacing: 2,
                       ),
-                      // Rotating Ring
-                      SizedBox(
-                        width: 120,
-                        height: 120,
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                              AppTheme.primaryColor.withValues(alpha: 0.5)),
-                          strokeWidth: 2,
-                        ),
-                      )
-                          .animate(onPlay: (controller) => controller.repeat())
-                          .rotate(duration: 2000.ms),
-                    ],
-                  ),
+                    ),
+                    Text(
+                      'DEBRID',
+                      style: GoogleFonts.outfit(
+                        fontSize: 42,
+                        fontWeight: FontWeight.w300,
+                        color: AppTheme.primaryColor,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ],
                 )
                     .animate()
-                    .scale(
-                        begin: const Offset(0.8, 0.8),
-                        end: const Offset(1.0, 1.0),
-                        duration: 600.ms,
-                        curve: Curves.easeOutBack)
-                    .fadeIn(duration: 400.ms),
+                    .fadeIn(duration: 1000.ms, curve: Curves.easeOutQuint)
+                    .slideY(
+                      begin: 0.15,
+                      end: 0,
+                      duration: 1000.ms,
+                      curve: Curves.easeOutQuint,
+                    ),
 
-                const SizedBox(height: 40),
+                const SizedBox(height: 12),
 
-                // Text Logo
-                Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'ALL',
-                          style: TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 2,
-                          ),
-                        ),
-                        Text(
-                          'DEBRID',
-                          style: TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w300,
-                            color: AppTheme.primaryColor,
-                            letterSpacing: 2,
-                          ),
-                        ),
-                      ],
-                    )
-                        .animate()
-                        .fadeIn(delay: 200.ms, duration: 500.ms)
-                        .slideY(begin: 0.1, end: 0),
-
-                    const SizedBox(height: 8),
-
-                    // Tagline / Status
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryColor.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                            color:
-                                AppTheme.primaryColor.withValues(alpha: 0.2)),
-                      ),
-                      child: Text(
-                        'SYSTEM INITIALIZING',
-                        style: TextStyle(
-                          color: AppTheme.primaryColor,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 3.0,
-                        ),
-                      ),
-                    ).animate().fadeIn(delay: 400.ms, duration: 500.ms),
-                  ],
-                ),
+                // Extremely subtle tagline
+                Text(
+                  'STREAM EVERYTHING',
+                  style: GoogleFonts.robotoMono(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white38,
+                    letterSpacing: 8,
+                  ),
+                ).animate().fadeIn(delay: 600.ms, duration: 800.ms).slideY(
+                      begin: 0.5,
+                      end: 0,
+                      delay: 600.ms,
+                      duration: 800.ms,
+                      curve: Curves.easeOutQuint,
+                    ),
               ],
             ),
           ),
 
-          // Footer Version
+          // Tiny, elegant spinner at the bottom
           Positioned(
-            bottom: 30,
+            bottom: 50,
             left: 0,
             right: 0,
             child: Center(
-              child: Text(
-                "v1.0.0 // PREMIUM BUILD",
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  fontSize: 10,
-                  letterSpacing: 2,
-                  fontFamily: 'Courier',
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    AppTheme.primaryColor.withValues(alpha: 0.4),
+                  ),
+                  backgroundColor: Colors.transparent,
                 ),
-              ),
-            ).animate().fadeIn(delay: 600.ms),
+              ).animate().fadeIn(delay: 1200.ms, duration: 600.ms),
+            ),
           ),
         ],
       ),

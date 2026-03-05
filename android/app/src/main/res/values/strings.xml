@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AllDebrid</string>
+    
+    <!-- Download notification strings -->
+    <string name="download_notification_channel_name">Downloads</string>
+    <string name="download_notification_channel_description">Download progress notifications</string>
+    
+    <!-- Title format: filename - percentage -->
+    <string name="flutter_downloader_notification_title">%s</string>
+    <string name="flutter_downloader_notification_body">%d%% • %s</string>
+    
+    <!-- Legacy format for compatibility -->
+    <string name="download_notification_title">%s - %d%%</string>
+    <string name="download_notification_completed">✓ Completed</string>
+    <string name="download_notification_failed">✗ Failed</string>
+    <string name="download_notification_paused">⏸ Paused</string>
+    <string name="download_notification_running">⬇ Downloading</string>
+
+    <!-- App icon shortcuts -->
+    <string name="shortcut_search_short">Search</string>
+    <string name="shortcut_search_long">Search Movies &amp; TV</string>
+    <string name="shortcut_continue_short">Continue</string>
+    <string name="shortcut_continue_long">Continue Watching</string>
+</resources>

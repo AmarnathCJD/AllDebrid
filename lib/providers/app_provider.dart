@@ -1,3 +1,4 @@
+import 'dart:convert';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../theme/app_theme.dart';
@@ -7,12 +8,12 @@ import 'package:flutter/material.dart';
 class AppProvider extends ChangeNotifier {
   final StorageService _storageService;
   AllDebridService? _allDebridService;
-
   bool _isInitialized = false;
   bool _isLoading = false;
   String? _error;
   User? _user;
   HostsResponse? _hosts;
+  List<ImdbSearchResult> _watchlist = [];
 
   bool _isDarkMode = true;
   Color _primaryColor = AppTheme.primaryColor;
@@ -31,6 +32,7 @@ class AppProvider extends ChangeNotifier {
   AllDebridService? get allDebridService => _allDebridService;
   Color get primaryColor => _primaryColor;
   bool get isDarkMode => _isDarkMode;
+  List<ImdbSearchResult> get watchlist => _watchlist;
 
   Future<void> saveSetting(String key, dynamic value) async {
     await _storageService.saveSetting(key, value);
@@ -52,6 +54,56 @@ class AppProvider extends ChangeNotifier {
   T? getSetting<T>(String key, [T? defaultValue]) =>
       _storageService.getSetting(key, defaultValue);
 
+  Map<String, dynamic> getAllSettings() => _storageService.getSettings();
+
+  bool isInWatchlist(String id) {
+    return _watchlist.any((item) => item.id == id);
+  }
+
+  Future<void> toggleWatchlist(ImdbSearchResult item) async {
+    final index = _watchlist.indexWhere((i) => i.id == item.id);
+    if (index != -1) {
+      _watchlist.removeAt(index);
+    } else {
+      _watchlist.insert(0, item);
+    }
+
+    final watchlistData =
+        _watchlist.map((e) => jsonEncode(e.toJson())).toList();
+    await _storageService.saveSetting('watchlist', watchlistData);
+    notifyListeners();
+  }
+
+  Future<void> reorderWatchlist(int oldIndex, int newIndex) async {
+    if (oldIndex < newIndex) {
+      newIndex -= 1;
+    }
+    final item = _watchlist.removeAt(oldIndex);
+    _watchlist.insert(newIndex, item);
+
+    final watchlistData =
+        _watchlist.map((e) => jsonEncode(e.toJson())).toList();
+    await _storageService.saveSetting('watchlist', watchlistData);
+    notifyListeners();
+  }
+
+  Future<void> updateWatchlistPriority(String id, int priority) async {
+    final index = _watchlist.indexWhere((item) => item.id == id);
+    if (index != -1) {
+      _watchlist[index] = _watchlist[index].copyWith(priority: priority);
+      final watchlistData =
+          _watchlist.map((e) => jsonEncode(e.toJson())).toList();
+      await _storageService.saveSetting('watchlist', watchlistData);
+      notifyListeners();
+    }
+  }
+
+  Future<void> clearWatchlist() async {
+    _watchlist.clear();
+    await _storageService.saveSetting('watchlist', []);
+    notifyListeners();
+  }
+
   Future<void> initialize() async {
     if (_isInitialized) return;
 
@@ -69,6 +121,22 @@ class AppProvider extends ChangeNotifier {
       final isDark = _storageService.getSetting<bool>('is_dark_mode');
       if (isDark != null) {
         _isDarkMode = isDark;
+      }
+
+      // Load Watchlist
+      final watchlistData =
+          _storageService.getSetting<List<dynamic>>('watchlist');
+      if (watchlistData != null) {
+        _watchlist = watchlistData
+            .map((e) {
+              try {
+                return ImdbSearchResult.fromJson(jsonDecode(e.toString()));
+              } catch (_) {
+                return null;
+              }
+            })
+            .whereType<ImdbSearchResult>()
+            .toList();
       }
 
       // Check if API key is stored

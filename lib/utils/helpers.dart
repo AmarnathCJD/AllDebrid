@@ -138,6 +138,32 @@ String toMagnetUri(String hash) {
   return 'magnet:?xt=urn:btih:$hash';
 }
 
+String cleanFilename(String filename) {
+  String name = filename.replaceAll('.', ' ').replaceAll('_', ' ');
+
+  name = name.replaceAll(RegExp(r'www\.1TamilMV\..*'), '');
+  // and all such urls
+  name = name.replaceAll(RegExp(r'www\..*'), '');
+  final patterns = [
+    RegExp(r'\b(19|20)\d{2}\b.*'), // Year and everything after
+    RegExp(r'\bS\d{1,2}(E\d{1,2})?.*',
+        caseSensitive: false), // Season/Episode info
+    RegExp(
+        r'\b(1080p|720p|480p|2160p|4k|HD|SD|WEB-DL|BluRay|BRRip|DVDRip|H264|x264|x265|HEVC|AAC|AC3)\b.*',
+        caseSensitive: false), // Quality/Codecs
+    RegExp(r'\[.*?\]'), // Brackets content
+    RegExp(r'\(.*?\)'), // Parentheses content
+  ];
+
+  for (var pattern in patterns) {
+    name = name.replaceAll(pattern, '');
+  }
+
+  name = name.replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '').trim();
+
+  return name.replaceAll(RegExp(r'\s+'), ' ');
+}
+
 int getProgressColor(double progress) {
   if (progress >= 100) {
     return 0xFF10B981;
