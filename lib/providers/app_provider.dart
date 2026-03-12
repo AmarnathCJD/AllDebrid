@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -14,6 +15,8 @@ class AppProvider extends ChangeNotifier {
   User? _user;
   HostsResponse? _hosts;
   List<ImdbSearchResult> _watchlist = [];
+  Map<String, int> _ratings = {};
+  Timer? _watchlistDebounce;
 
   bool _isDarkMode = true;
   Color _primaryColor = AppTheme.primaryColor;
@@ -91,10 +94,14 @@ class AppProvider extends ChangeNotifier {
     final index = _watchlist.indexWhere((item) => item.id == id);
     if (index != -1) {
       _watchlist[index] = _watchlist[index].copyWith(priority: priority);
-      final watchlistData =
-          _watchlist.map((e) => jsonEncode(e.toJson())).toList();
-      await _storageService.saveSetting('watchlist', watchlistData);
-      notifyListeners();
+
+      _watchlistDebounce?.cancel();
+      _watchlistDebounce = Timer(const Duration(milliseconds: 600), () async {
+        final watchlistData =
+            _watchlist.map((e) => jsonEncode(e.toJson())).toList();
+        await _storageService.saveSetting('watchlist', watchlistData);
+        notifyListeners();
+      });
     }
   }
 
@@ -139,11 +146,13 @@ class AppProvider extends ChangeNotifier {
             .toList();
       }
 
-      // Check if API key is stored
       final storedApiKey = _storageService.getApiKey();
       if (storedApiKey != null && storedApiKey.isNotEmpty) {
         await _initializeWithApiKey(storedApiKey);
       }
+
+      final ratingsData = _storageService.getSetting<String>('ratings') ?? '{}';
+      _ratings = Map<String, int>.from(jsonDecode(ratingsData));
 
       _isInitialized = true;
     } catch (e) {
@@ -176,14 +185,10 @@ class AppProvider extends ChangeNotifier {
   Future<void> _initializeWithApiKey(String apiKey) async {
     _allDebridService = AllDebridService(apiKey: apiKey);
 
-    // Verify API key by fetching user
     _user = await _allDebridService!.getUser();
-
-    // Fetch hosts
     _hosts = await _allDebridService!.getHosts();
   }
 
-  /// Refresh user data
   Future<void> refreshUser() async {
     if (_allDebridService == null) return;
 
@@ -201,7 +206,6 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  /// Refresh hosts
   Future<void> refreshHosts() async {
     if (_allDebridService == null) return;
 
@@ -214,7 +218,6 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  /// Logout
   Future<void> logout() async {
     await _storageService.clearApiKey();
     _allDebridService = null;
@@ -224,9 +227,22 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Clear error
   void clearError() {
     _error = null;
+    notifyListeners();
+  }
+
+  int getRating(String id) {
+    return _ratings[id] ?? 0;
+  }
+
+  Future<void> setRating(String id, int rating) async {
+    if (rating == 0) {
+      _ratings.remove(id);
+    } else {
+      _ratings[id] = rating;
+    }
+    await _storageService.saveSetting('ratings', jsonEncode(_ratings));
     notifyListeners();
   }
 }

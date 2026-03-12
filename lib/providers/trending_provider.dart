@@ -38,70 +38,100 @@ class TrendingProvider extends ChangeNotifier {
   bool get hasError => _hasError;
 
   Future<void> loadTrendingData() async {
-    _isLoading = true;
-    _hasError = false;
-    notifyListeners();
+    final cachedTrending = await _riveService.getCachedTrending(page: 1);
+    final cachedNetflixTV = await _riveService.getCachedDiscoverContent(
+        mediaType: 'tv',
+        watchProviders: '8',
+        monetizationTypes: 'flatrate',
+        page: 1);
+    final cachedNetflixMovies = await _riveService.getCachedDiscoverContent(
+        mediaType: 'movie',
+        watchProviders: '8',
+        monetizationTypes: 'flatrate',
+        page: 1);
+    final cachedAmazonTV = await _riveService.getCachedDiscoverContent(
+        mediaType: 'tv',
+        watchProviders: '119',
+        monetizationTypes: 'flatrate',
+        page: 1);
+    final cachedAmazonMovies = await _riveService.getCachedDiscoverContent(
+        mediaType: 'movie',
+        watchProviders: '119',
+        monetizationTypes: 'flatrate',
+        page: 1);
 
+    bool hasCache = cachedTrending.isNotEmpty || cachedNetflixTV.isNotEmpty;
+
+    if (hasCache) {
+      _trendingMovies = cachedTrending
+          .where((i) => i.mediaType == 'movie')
+          .map(_mapToTrendingItem)
+          .toList();
+      _trendingTVShows = cachedTrending
+          .where((i) => i.mediaType == 'tv')
+          .map(_mapToTrendingItem)
+          .toList();
+      _netflixShows = [...cachedNetflixTV, ...cachedNetflixMovies]
+          .map(_mapToTrendingItem)
+          .toList();
+      _amazonPrimeShows = [...cachedAmazonTV, ...cachedAmazonMovies]
+          .map(_mapToTrendingItem)
+          .toList();
+
+      _trendingMovies.shuffle();
+      _trendingTVShows.shuffle();
+      _netflixShows.shuffle();
+      _amazonPrimeShows.shuffle();
+      notifyListeners();
+    } else {
+      _isLoading = true;
+      notifyListeners();
+    }
+
+    // 2. Fetch fresh data in the background
     try {
-      // Fetch Trending
       final trendingResults = await _riveService.getTrending(page: 1);
-
-      // Filter movies and TV shows
       _trendingMovies = trendingResults
           .where((item) => item.mediaType == 'movie')
           .map(_mapToTrendingItem)
           .toList();
-
       _trendingTVShows = trendingResults
           .where((item) => item.mediaType == 'tv')
           .map(_mapToTrendingItem)
           .toList();
 
-      // Fetch Netflix Content (Provider ID 8)
-      // Flatrate
       final netflixResults = await _riveService.getDiscoverContent(
-        mediaType: 'tv',
-        watchProviders: '8',
-        monetizationTypes: 'flatrate',
-      );
-      // We can also fetch movies if we want to mix them
+          mediaType: 'tv', watchProviders: '8', monetizationTypes: 'flatrate');
       final netflixMoviesResults = await _riveService.getDiscoverContent(
-        mediaType: 'movie',
-        watchProviders: '8',
-        monetizationTypes: 'flatrate',
-      );
-
+          mediaType: 'movie',
+          watchProviders: '8',
+          monetizationTypes: 'flatrate');
       _netflixShows = [...netflixResults, ...netflixMoviesResults]
           .map(_mapToTrendingItem)
           .toList();
 
-      // Fetch Amazon Prime Content (Provider ID 119)
       final amazonResults = await _riveService.getDiscoverContent(
-        mediaType: 'tv',
-        watchProviders: '119',
-        monetizationTypes: 'flatrate',
-      );
+          mediaType: 'tv',
+          watchProviders: '119',
+          monetizationTypes: 'flatrate');
       final amazonMoviesResults = await _riveService.getDiscoverContent(
-        mediaType: 'movie',
-        watchProviders: '119',
-        monetizationTypes: 'flatrate',
-      );
-
+          mediaType: 'movie',
+          watchProviders: '119',
+          monetizationTypes: 'flatrate');
       _amazonPrimeShows = [...amazonResults, ...amazonMoviesResults]
           .map(_mapToTrendingItem)
           .toList();
 
-      // Shuffle
       _trendingMovies.shuffle();
       _trendingTVShows.shuffle();
       _netflixShows.shuffle();
       _amazonPrimeShows.shuffle();
+      _hasError = false;
     } catch (e) {
       print('[TRENDING PROVIDER] Error loading trending data: $e');
-      _hasError = true;
-      // Keep existing cached data on error
+      if (!hasCache) _hasError = true;
     } finally {
-      _isLoading = false;
+      if (_isLoading) _isLoading = false;
       notifyListeners();
     }
   }

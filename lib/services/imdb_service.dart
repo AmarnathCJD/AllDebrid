@@ -199,6 +199,52 @@ class ImdbService {
     return _recommendationsCache[id] ?? [];
   }
 
+  Future<List<ImdbSearchResult>> getRecommendations(String id) async {
+    try {
+      // 1. Check cache
+      if (_recommendationsCache.containsKey(id) &&
+          _recommendationsCache[id]!.isNotEmpty) {
+        return _recommendationsCache[id]!;
+      }
+
+      final url = 'https://imdb.gogram.fun/recommendations/$id';
+      final response = await _dio.get(
+        url,
+        options: Options(
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200 && response.data != null) {
+        final data = response.data;
+        final List<dynamic> recs = data['recommendations'] ?? [];
+
+        final results = recs.map((item) {
+          return ImdbSearchResult(
+            id: item['imdb_id'] ?? '',
+            title: item['title'] ?? '',
+            year: item['year']?.toString() ?? '',
+            posterUrl: _getPoster(item['poster'] ?? '', width: 500),
+          );
+        }).toList();
+
+        if (results.isNotEmpty) {
+          _recommendationsCache[id] = results;
+        }
+        return results;
+      }
+    } catch (e) {
+      debugPrint('Error fetching recommendations from API: $e');
+    }
+
+    // Fallback: If API fails, return empty list (MediaInfoScreen handles fallbacks to scraping/TMDB)
+    return [];
+  }
+
   Future<List<ImdbSearchResult>> search(String query) async {
     try {
       final cleanQuery = Uri.encodeComponent(query);
@@ -236,7 +282,7 @@ class ImdbService {
             id: item['id'] ?? '',
             title: item['l'] ?? '',
             year: item['y']?.toString() ?? '',
-            posterUrl: _getHighQualityPoster(item['i']?['imageUrl'] ?? ''),
+            posterUrl: _getPoster(item['i']?['imageUrl'] ?? '', width: 500),
             stars: item['s'],
             videoId: videoId,
             rating: item['k']?.toString(),
@@ -287,7 +333,7 @@ class ImdbService {
                 id: id,
                 title: title,
                 year: year,
-                posterUrl: _getHighQualityPoster(image),
+                posterUrl: _getPoster(image, width: 500),
                 rating: rating,
               ));
             }
@@ -324,7 +370,7 @@ class ImdbService {
                 id: id,
                 title: title,
                 year: year,
-                posterUrl: _getHighQualityPoster(posterUrl),
+                posterUrl: _getPoster(posterUrl, width: 500),
                 rating: rating,
               ));
             }
@@ -340,10 +386,10 @@ class ImdbService {
     return [];
   }
 
-  String _getHighQualityPoster(String url) {
+  String _getPoster(String url, {int width = 1000}) {
     if (url.isEmpty || url.contains('nopicture')) return '';
     if (url.contains('._V1_')) {
-      return url.replaceAll(RegExp(r'\._V1_.*'), '._V1_SX1000.jpg');
+      return url.replaceAll(RegExp(r'\._V1_.*'), '._V1_SX$width.jpg');
     }
     return url;
   }
@@ -353,11 +399,24 @@ class ImdbService {
       final response = await _dio.get(
         'https://www.imdb.com/title/$id/',
         options: Options(headers: {
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3',
-          'Accept':
-              'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
+          'accept':
+              'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+          'accept-language': 'en-US,en;q=0.9',
+          'cache-control': 'no-cache',
+          'dnt': '1',
+          'pragma': 'no-cache',
+          'priority': 'u=0, i',
+          'sec-ch-ua':
+              '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
+          'sec-ch-ua-mobile': '?0',
+          'sec-ch-ua-platform': '"Windows"',
+          'sec-fetch-dest': 'document',
+          'sec-fetch-mode': 'navigate',
+          'sec-fetch-site': 'none',
+          'sec-fetch-user': '?1',
+          'upgrade-insecure-requests': '1',
+          'user-agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
         }),
       );
 
@@ -475,7 +534,6 @@ class ImdbService {
             .forEach((el) {
           actors.add(el.text);
         });
-        // JSON-LD fallback for actors
         if (actors.isEmpty && jsonLd['actor'] != null) {
           if (jsonLd['actor'] is List) {
             for (var a in jsonLd['actor']) {
@@ -543,48 +601,18 @@ class ImdbService {
             .querySelector('meta[property="og:image"]')
             ?.attributes['content'];
         if (ogImage != null && !ogImage.contains('nopicture')) {
-          backdrop = _getHighQualityPoster(ogImage);
+          backdrop = _getPoster(ogImage);
         }
 
-        final List<ImdbSearchResult> recs = [];
         try {
-          final recItems = document.querySelectorAll(
-              "div[data-testid=shoveler-items-container] .ipc-poster-card");
-
-          for (var item in recItems) {
-            final linkEl = item.querySelector("a.ipc-poster-card__title");
-            final idMatch = RegExp(r'/title/(tt\d+)/')
-                .firstMatch(linkEl?.attributes['href'] ?? '');
-            final recId = idMatch?.group(1) ?? '';
-
-            final recTitle = linkEl?.text ?? '';
-
-            final imgEl = item.querySelector("img.ipc-image");
-            final recPoster = imgEl?.attributes['src'] ?? '';
-
-            final ratingEl = item.querySelector(".ipc-rating-star--base");
-            final recRating = ratingEl?.text.split('(').first.trim();
-
-            if (recId.isNotEmpty) {
-              recs.add(ImdbSearchResult(
-                id: recId,
-                title: recTitle,
-                year: '',
-                posterUrl: _getHighQualityPoster(recPoster),
-                rating: recRating,
-              ));
-            }
-          }
-          if (recs.isNotEmpty) {
-            _recommendationsCache[id] = recs;
-          }
+          await getRecommendations(id);
         } catch (_) {}
 
         return ImdbSearchResult(
           id: id,
           title: title,
           year: year,
-          posterUrl: _getHighQualityPoster(poster),
+          posterUrl: _getPoster(poster),
           rating: rating,
           description: description,
           duration: duration,
@@ -920,7 +948,7 @@ class ImdbService {
               id: id,
               title: title,
               year: year,
-              posterUrl: _getHighQualityPoster(image),
+              posterUrl: _getPoster(image, width: 500),
               rating: rating,
             ));
           }

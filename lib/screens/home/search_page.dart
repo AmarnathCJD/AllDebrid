@@ -10,9 +10,12 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
+import '../../utils/helpers.dart';
 
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key});
+  final String? initialQuery;
+  final bool fromCast;
+  const SearchPage({super.key, this.initialQuery, this.fromCast = false});
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -29,21 +32,32 @@ class _SearchPageState extends State<SearchPage> {
   List<RiveStreamMedia> _trendingResults = [];
   List<ImdbSearchResult> _recentItems = [];
 
-  bool _isLoading = false;
+  bool _isLoadingTrending = false;
+  bool _isLoadingSearch = false;
   bool _isLoadingMore = false;
+
+  bool get _isLoading => _isLoadingTrending || _isLoadingSearch;
+
   int _currentPage = 1;
   Timer? _debounce;
   String _selectedFilter = 'All';
   bool _isSearchFocused = false;
+  late final bool _isCastSearch;
 
   @override
   void initState() {
     super.initState();
+    _isCastSearch = widget.fromCast;
     _fetchInitialData();
     _scrollController.addListener(_onScroll);
     _searchFocusNode.addListener(() {
       setState(() => _isSearchFocused = _searchFocusNode.hasFocus);
     });
+
+    if (widget.initialQuery != null && widget.initialQuery!.isNotEmpty) {
+      _searchController.text = widget.initialQuery!;
+      _performSearch(widget.initialQuery!);
+    }
   }
 
   @override
@@ -63,12 +77,12 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Future<void> _fetchInitialData() async {
-    setState(() => _isLoading = true);
+    setState(() => _isLoadingTrending = true);
     await Future.wait([
       _fetchTrending(),
       _fetchRecents(),
     ]);
-    if (mounted) setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoadingTrending = false);
   }
 
   Future<void> _fetchRecents() async {
@@ -97,6 +111,9 @@ class _SearchPageState extends State<SearchPage> {
 
     // Only paginate if filtering allows it
     if (_searchController.text.isEmpty && _selectedFilter != 'All') return;
+
+    // Don't paginate for cast searches - they already get all results
+    if (_isCastSearch) return;
 
     setState(() => _isLoadingMore = true);
     try {
@@ -145,18 +162,35 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Future<void> _performSearch(String query) async {
-    setState(() => _isLoading = true);
+    setState(() => _isLoadingSearch = true);
     try {
-      final results = await _riveService.searchMulti(query, page: 1);
+      late List<RiveStreamMedia> results;
+
+      if (_isCastSearch) {
+        // Use person search for cast members
+        print('SearchPage: Searching for cast filmography: $query');
+        results =
+            await _riveService.searchPersonAndGetFilmography(query, page: 1);
+        print('SearchPage: Got ${results.length} results from cast search');
+      } else {
+        // Use general multi search
+        print('SearchPage: Searching for: $query');
+        results = await _riveService.searchMulti(query, page: 1);
+        print('SearchPage: Got ${results.length} results from general search');
+      }
+
       if (mounted) {
+        final filtered =
+            results.where((item) => item.fullPosterUrl.isNotEmpty).toList();
+        print('SearchPage: After filtering, ${filtered.length} results remain');
         setState(() {
-          _searchResults =
-              results.where((item) => item.fullPosterUrl.isNotEmpty).toList();
-          _isLoading = false;
+          _searchResults = filtered;
+          _isLoadingSearch = false;
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      print('SearchPage Error: $e');
+      if (mounted) setState(() => _isLoadingSearch = false);
     }
   }
 
@@ -177,7 +211,7 @@ class _SearchPageState extends State<SearchPage> {
     final imdbItem = ImdbSearchResult(
       id: item.id.toString(),
       title: item.displayTitle,
-      posterUrl: item.fullPosterUrl,
+      posterUrl: upgradePosterQuality(item.fullPosterUrl),
       year:
           item.displayDate.isNotEmpty ? item.displayDate.split('-').first : '',
       kind: item.mediaType == 'movie' ? 'movie' : 'tvseries',
@@ -454,33 +488,39 @@ class _SearchPageState extends State<SearchPage> {
                 alignment: WrapAlignment.center,
                 spacing: 8,
                 runSpacing: 8,
-                children:
-                    ['Action', 'Comedy', 'Drama', 'Sci-Fi', 'Horror', 'Romance']
-                        .map((genre) => GestureDetector(
-                              onTap: () {
-                                _searchController.text = genre;
-                                _onSearchChanged(genre);
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.05),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.08)),
-                                ),
-                                child: Text(
-                                  genre,
-                                  style: GoogleFonts.inter(
-                                    color: Colors.white60,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
+                children: [
+                  'Action',
+                  'Comedy',
+                  'Drama',
+                  'Sci-Fi',
+                  'Horror',
+                  'Romance'
+                ]
+                    .map((genre) => GestureDetector(
+                          onTap: () {
+                            _searchController.text = genre;
+                            _onSearchChanged(genre);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.08)),
+                            ),
+                            child: Text(
+                              genre,
+                              style: GoogleFonts.inter(
+                                color: Colors.white60,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
                               ),
-                            ))
-                        .toList(),
+                            ),
+                          ),
+                        ))
+                    .toList(),
               ),
             ],
           ),
@@ -570,7 +610,8 @@ class _SearchPageState extends State<SearchPage> {
                                       borderRadius: BorderRadius.circular(12),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.black.withValues(alpha: 0.2),
+                                          color: Colors.black
+                                              .withValues(alpha: 0.2),
                                           blurRadius: 8,
                                           offset: const Offset(0, 4),
                                         ),
@@ -758,7 +799,8 @@ class _SearchPageState extends State<SearchPage> {
                                 Text(
                                   item.voteAverage.toStringAsFixed(1),
                                   style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.9),
+                                      color:
+                                          Colors.white.withValues(alpha: 0.9),
                                       fontSize: 9,
                                       fontWeight: FontWeight.w700),
                                 ),
@@ -787,7 +829,8 @@ class _SearchPageState extends State<SearchPage> {
                           color: Colors.black.withValues(alpha: 0.4),
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.1), width: 0.5),
+                              color: Colors.white.withValues(alpha: 0.1),
+                              width: 0.5),
                         ),
                         child: Text(
                           item.mediaType == 'movie' ? 'MOVIE' : 'TV',

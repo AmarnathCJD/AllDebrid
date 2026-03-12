@@ -9,8 +9,8 @@ import '../../models/models.dart';
 import '../../utils/helpers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/imdb_service.dart';
-import 'package:http/http.dart' as http;
 import 'package:google_fonts/google_fonts.dart';
+import 'package:dio/dio.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../player/player_screen.dart';
 import '../../widgets/widgets.dart';
@@ -1175,15 +1175,19 @@ class _MagnetBottomSheetState extends State<_MagnetBottomSheet> {
 
         // Fetch content
         try {
-          final response = await http.get(Uri.parse(directLink));
-          if (response.statusCode == 200 && mounted) {
+          final dio = Dio();
+          final response = await dio.get<String>(
+            directLink,
+            options: Options(responseType: ResponseType.plain),
+          );
+          if (response.statusCode == 200 && response.data != null && mounted) {
             showModalBottomSheet(
               context: context,
               isScrollControlled: true,
               backgroundColor: Colors.transparent,
               builder: (context) => _TextFileViewer(
                 filename: file.name,
-                content: response.body,
+                content: response.data!,
               ),
             );
           }

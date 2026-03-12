@@ -45,31 +45,37 @@ class SplashScreen extends StatelessWidget {
                   ],
                 )
                     .animate()
-                    .fadeIn(duration: 1000.ms, curve: Curves.easeOutQuint)
+                    .fadeIn(duration: 800.ms, curve: Curves.easeOutCubic)
+                    .scale(
+                      begin: const Offset(0.8, 0.8),
+                      end: const Offset(1.0, 1.0),
+                      duration: 800.ms,
+                      curve: Curves.easeOutBack,
+                    )
                     .slideY(
-                      begin: 0.15,
+                      begin: 0.1,
                       end: 0,
-                      duration: 1000.ms,
-                      curve: Curves.easeOutQuint,
+                      duration: 800.ms,
+                      curve: Curves.easeOutCubic,
                     ),
 
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
 
                 // Extremely subtle tagline
                 Text(
                   'STREAM EVERYTHING',
-                  style: GoogleFonts.robotoMono(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white38,
-                    letterSpacing: 8,
+                  style: GoogleFonts.outfit(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white.withValues(alpha: 0.3),
+                    letterSpacing: 6,
                   ),
-                ).animate().fadeIn(delay: 600.ms, duration: 800.ms).slideY(
-                      begin: 0.5,
+                ).animate().fadeIn(delay: 500.ms, duration: 800.ms).slideY(
+                      begin: 0.2,
                       end: 0,
-                      delay: 600.ms,
+                      delay: 500.ms,
                       duration: 800.ms,
-                      curve: Curves.easeOutQuint,
+                      curve: Curves.easeOutCubic,
                     ),
               ],
             ),
@@ -77,21 +83,21 @@ class SplashScreen extends StatelessWidget {
 
           // Tiny, elegant spinner at the bottom
           Positioned(
-            bottom: 50,
+            bottom: 60,
             left: 0,
             right: 0,
             child: Center(
-              child: SizedBox(
-                width: 20,
-                height: 20,
+              child: Container(
+                width: 24,
+                height: 24,
+                padding: const EdgeInsets.all(2),
                 child: CircularProgressIndicator(
-                  strokeWidth: 1.5,
+                  strokeWidth: 2,
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    AppTheme.primaryColor.withValues(alpha: 0.4),
+                    AppTheme.primaryColor.withValues(alpha: 0.6),
                   ),
-                  backgroundColor: Colors.transparent,
                 ),
-              ).animate().fadeIn(delay: 1200.ms, duration: 600.ms),
+              ).animate().fadeIn(delay: 1000.ms, duration: 800.ms),
             ),
           ),
         ],

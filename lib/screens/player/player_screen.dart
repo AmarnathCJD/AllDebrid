@@ -21,7 +21,6 @@ import '../../services/video_source_service.dart';
 import '../../services/vidlink_service.dart';
 import '../../services/kisskh_service.dart';
 import '../../services/wyzie_service.dart';
-import '../../services/tg_service.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String url;
@@ -111,11 +110,20 @@ class _PlayerScreenState extends State<PlayerScreen>
   String _notificationMessage = '';
   Timer? _notificationTimer;
 
+  bool _isPreFetching = false;
+  bool _preFetchTriggered = false;
+  List<VideoSource>? _preFetchedSources;
+  List<VideoCaption>? _preFetchedCaptions;
+  int? _preFetchedS;
+  int? _preFetchedE;
+
   // Auto-play next episode
   Timer? _autoPlayCountdownTimer;
   int _autoPlayCountdown = 0;
   bool _showAutoPlayDialog = false;
   bool _cancelAutoPlay = false;
+  bool _autoPlayTriggeredForThisEpisode = false;
+  StreamSubscription<Duration>? _positionSubscription;
 
   static const _pipChannel = MethodChannel('com.alldebrid/pip');
 
@@ -390,16 +398,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     // Listen for video completion and trigger auto-play
     if (widget.episode != null) {
-      _player.stream.position.listen((position) {
-        final duration = _player.state.duration;
-        if (duration > Duration.zero) {
-          final isNearEnd = position.inMilliseconds >=
-              (duration.inMilliseconds * 0.98); // 98% through
-          if (isNearEnd && !_showAutoPlayDialog && !_cancelAutoPlay) {
-            _startAutoPlayCountdown();
-          }
-        }
-      });
+      _initPositionListener();
     }
   }
 
@@ -1318,6 +1317,172 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
+  Future<void> _preFetchNextEpisode() async {
+    if (_currentSeason == null || _currentEpisode == null || _isPreFetching) return;
+    
+    _isPreFetching = true;
+    try {
+      var nextS = _currentSeason!;
+      var nextE = _currentEpisode! + 1;
+
+      // Check metadata
+      if (widget.tmdbId != null) {
+        try {
+          final rive = RiveStreamService();
+          var sDetails = await rive.getSeasonDetails(widget.tmdbId!, nextS);
+          var hasNextEp = sDetails.any((e) => e.episodeNumber == nextE);
+          if (!hasNextEp) {
+            nextS++;
+            nextE = 1;
+            try {
+              sDetails = await rive.getSeasonDetails(widget.tmdbId!, nextS);
+              hasNextEp = sDetails.any((e) => e.episodeNumber == nextE);
+            } catch (_) { hasNextEp = false; }
+          }
+          if (!hasNextEp) {
+             _isPreFetching = false;
+            return;
+          }
+        } catch (_) {
+          _isPreFetching = false;
+          return;
+        }
+      }
+
+      print('[PreFetch] Starting pre-fetch for S$nextS E$nextE using $_currentProvider');
+      
+      final searchTitle = _currentTitle
+          ?.replaceAll(RegExp(r'\s*[-\s]*S\d+E\d+.*$', caseSensitive: false), '')
+          .trim() ?? "Video";
+
+      List<VideoSource> sources = [];
+      List<VideoCaption> captions = [];
+      
+      // Attempt pre-fetch with current provider
+      Map<String, dynamic>? data;
+      if (_currentProvider == 'River') {
+        data = await VideoSourceService().getVideoSources(widget.tmdbId.toString(), nextS.toString(), nextE.toString());
+      } else if (_currentProvider == 'VidLink') {
+        data = await VidLinkService().getSources(widget.tmdbId!, isMovie: false, season: nextS, episode: nextE);
+      } else if (_currentProvider == 'KissKh') {
+        data = await KissKhService().getSources(searchTitle, nextS, nextE);
+      } else if (_currentProvider == 'VidEasy') {
+        data = await VidEasyService().getSources(searchTitle, widget.mediaItem?.year ?? '2020', widget.tmdbId ?? 0, isMovie: false, season: nextS, episode: nextE);
+      }
+
+      if (data != null) {
+        sources = List<VideoSource>.from(data['sources'] ?? []);
+        captions = List<VideoCaption>.from(data['captions'] ?? []);
+      }
+
+      // Pre-fetch fallback
+      if (sources.isEmpty) {
+        final fallbacks = ['River', 'VidLink', 'VidEasy', 'KissKh']..remove(_currentProvider);
+        for (final p in fallbacks) {
+           print('[PreFetch] Falling back to $p...');
+           Map<String, dynamic>? res;
+           if (p == 'River' && widget.tmdbId != null) {
+             res = await VideoSourceService().getVideoSources(widget.tmdbId.toString(), nextS.toString(), nextE.toString());
+           } else if (p == 'VidLink' && widget.tmdbId != null) {
+             res = await VidLinkService().getSources(widget.tmdbId!, isMovie: false, season: nextS, episode: nextE);
+           } else if (p == 'KissKh') {
+             res = await KissKhService().getSources(searchTitle, nextS, nextE);
+           } else if (p == 'VidEasy') {
+             res = await VidEasyService().getSources(searchTitle, widget.mediaItem?.year ?? '2020', widget.tmdbId ?? 0, isMovie: false, season: nextS, episode: nextE);
+           }
+           if (res != null) {
+              final newSources = List<VideoSource>.from(res['sources'] ?? []);
+              if (newSources.isNotEmpty) {
+                sources = newSources;
+                captions = List<VideoCaption>.from(res['captions'] ?? []);
+                break;
+              }
+           }
+        }
+      }
+
+      if (sources.isNotEmpty) {
+        _preFetchedSources = sources;
+        _preFetchedCaptions = captions;
+        _preFetchedS = nextS;
+        _preFetchedE = nextE;
+        print('[PreFetch] Success! Pre-loaded ${sources.length} sources');
+      }
+    } finally {
+      _isPreFetching = false;
+    }
+  }
+
+  Future<void> _switchToNewEpisode(int nextS, int nextE, List<VideoSource> sources, List<VideoCaption> captions) async {
+    final newUrl = sources.first.url;
+    Map<String, String>? headers = sources.first.headers ?? widget.httpHeaders;
+
+    _savePosition();
+    _positionSubscription?.cancel();
+    _positionSubscription = null;
+    _autoPlayCountdownTimer?.cancel();
+
+    if (mounted) {
+      setState(() {
+        _currentSources = sources;
+        _currentSeason = nextS;
+        _currentEpisode = nextE;
+        _showAutoPlayDialog = false;
+        _cancelAutoPlay = false;
+        _autoPlayTriggeredForThisEpisode = false;
+        _preFetchTriggered = false;
+        
+        final baseTitle = widget.title?.replaceAll(RegExp(r'\s*[-\s]*S\d+E\d+.*$'), '').trim() ?? "Video";
+        _currentTitle = '$baseTitle S${nextS}E${nextE}';
+
+        _externalSubtitles.clear();
+        for (final caption in captions) {
+          _externalSubtitles.add(ExternalSubtitle(
+              uri: caption.file,
+              title: caption.label,
+              language: caption.label.split(' - ').first.trim()));
+        }
+        _fetchingNextEpisode = false;
+        _isReady = false; // Trigger reload overlay
+      });
+    }
+
+    _player.setVolume(0.0);
+    await _player.open(
+        Media(newUrl, httpHeaders: headers, extras: {
+          'title': _currentTitle ?? 'Video',
+          'artist': 'AllDebrid',
+          'album': 'Season $nextS',
+          if (widget.mediaItem?.posterUrl != null) 'artwork': widget.mediaItem!.posterUrl,
+        }),
+        play: true);
+    
+    _player.setVolume(_volumeBoost);
+    if (mounted) setState(() => _isReady = true);
+    
+    // Re-init position listener
+    _initPositionListener();
+  }
+
+  void _initPositionListener() {
+    _positionSubscription?.cancel();
+    _positionSubscription = _player.stream.position.listen((position) {
+      final duration = _player.state.duration;
+      if (duration > Duration.zero) {
+        final isNearEnd = position.inMilliseconds >= duration.inMilliseconds - 100;
+        final isNearPreFetch = position.inMilliseconds >= duration.inMilliseconds - (120 * 1000);
+        
+        if (isNearPreFetch && !_preFetchTriggered && !_fetchingNextEpisode) {
+          _preFetchTriggered = true;
+          _preFetchNextEpisode();
+        }
+        if (isNearEnd && !_showAutoPlayDialog && !_cancelAutoPlay && !_autoPlayTriggeredForThisEpisode && !_fetchingNextEpisode) {
+          _startAutoPlayCountdown();
+        }
+      }
+    });
+  }
+
   void _startAutoPlayCountdown() {
     if (!mounted || _showAutoPlayDialog) return;
 
@@ -1353,13 +1518,11 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Future<void> _playNextEpisode() async {
-    // Basic validation - need at least S/E info
     if (_currentSeason == null || _currentEpisode == null) {
       _showNotif('Cannot determine next episode info');
       return;
     }
 
-    // Providers that STRICTLY require TMDB ID
     final needsTmdb = ['River', 'VidLink'];
     if (needsTmdb.contains(_currentProvider) && widget.tmdbId == null) {
       _showNotif('Next episode requires TMDB ID');
@@ -1369,134 +1532,95 @@ class _PlayerScreenState extends State<PlayerScreen>
     setState(() => _fetchingNextEpisode = true);
 
     try {
-      // Use current state for calculation
       var nextS = _currentSeason!;
       var nextE = _currentEpisode! + 1;
 
-      // Only check metadata if we have TMDB ID
+      // USE PRE-FETCHED DATA IF AVAILABLE
+      if (_preFetchedSources != null && _preFetchedSources!.isNotEmpty && 
+          _preFetchedS == nextS && _preFetchedE == nextE) {
+        print('[AutoPlay] Using pre-fetched sources for S$nextS E$nextE');
+        final sources = _preFetchedSources!;
+        final captions = List<VideoCaption>.from(_preFetchedCaptions ?? []);
+        
+        _preFetchedSources = null;
+        _preFetchedCaptions = null;
+        _preFetchedS = null;
+        _preFetchedE = null;
+        _preFetchTriggered = false;
+
+        setState(() => _fetchingNextEpisode = false);
+        _switchToNewEpisode(nextS, nextE, sources, captions);
+        return;
+      }
+
+      // If no pre-fetch, proceed
       if (widget.tmdbId != null) {
         try {
           final rive = RiveStreamService();
           var sDetails = await rive.getSeasonDetails(widget.tmdbId!, nextS);
           var hasNextEp = sDetails.any((e) => e.episodeNumber == nextE);
-
           if (!hasNextEp) {
-            // Check next season
-            // Optimistically try next season, episode 1
             nextS++;
             nextE = 1;
-            // Validate next season exists if possible
             try {
               sDetails = await rive.getSeasonDetails(widget.tmdbId!, nextS);
               hasNextEp = sDetails.any((e) => e.episodeNumber == nextE);
-            } catch (_) {
-              hasNextEp = false;
-            }
+            } catch (_) { hasNextEp = false; }
           }
-
           if (!hasNextEp) {
-            // If we verified it doesn't exist, stop.
             setState(() => _fetchingNextEpisode = false);
             _showNotif('No next episode found');
             return;
           }
         } catch (e) {
-          print('Error checking episode metadata: $e');
-          // If metadata check fails, we might still try blindly if provider supports it?
-          // For now, let's proceed optimistically if we have a provider that might work
+          print('Error checking metadata: $e');
         }
-      } else {
-        // Blindly try next episode if no TMDB ID (KissKh etc)
-        // We just increment episode.
-        // Note: We won't know to jump to next season S(n+1)E1 automatically without metadata,
-        // so we just try S(n)E(n+1).
       }
 
-      Map<String, dynamic> data = {};
       List<VideoSource> sources = [];
       List<VideoCaption> captions = [];
+      final searchTitle = _currentTitle?.replaceAll(RegExp(r'\s*[-\s]*S\d+E\d+.*$', caseSensitive: false), '').trim() ?? "Video";
 
-      final searchTitle = _currentTitle
-              ?.replaceAll(
-                  RegExp(r'\s*[-\s]*S\d+E\d+.*$', caseSensitive: false), '')
-              .trim() ??
-          "Video";
-
-      if (_currentProvider == 'TG') {
-        await (_player.platform as dynamic)
-            .setProperty('demuxer-lavf-o', 'seekable=0');
-      }
+      // 1. Try current provider
+      Map<String, dynamic>? data;
       if (_currentProvider == 'River') {
-        final vsService = VideoSourceService();
-        data = await vsService.getVideoSources(
-          widget.tmdbId.toString(),
-          nextS.toString(),
-          nextE.toString(),
-        );
-        sources = (data['sources'] as List<VideoSource>?) ?? [];
-        captions = (data['captions'] as List<VideoCaption>?) ?? [];
-      } else if (_currentProvider == 'KissKh') {
-        final kissKhService = KissKhService();
-        // KissKh uses title search
-        data = await kissKhService.getSources(
-          searchTitle,
-          nextS,
-          nextE,
-        );
-        sources = (data['sources'] as List<VideoSource>?) ?? [];
-        captions = (data['captions'] as List<VideoCaption>?) ?? [];
+        data = await VideoSourceService().getVideoSources(widget.tmdbId.toString(), nextS.toString(), nextE.toString());
       } else if (_currentProvider == 'VidLink') {
-        final vidLinkService = VidLinkService();
-        data = await vidLinkService.getSources(
-          widget.tmdbId!,
-          isMovie: false,
-          season: nextS,
-          episode: nextE,
-        );
-        sources = (data['sources'] as List<VideoSource>?) ?? [];
-        captions = (data['captions'] as List<VideoCaption>?) ?? [];
+        data = await VidLinkService().getSources(widget.tmdbId!, isMovie: false, season: nextS, episode: nextE);
+      } else if (_currentProvider == 'KissKh') {
+        data = await KissKhService().getSources(searchTitle, nextS, nextE);
       } else if (_currentProvider == 'VidEasy') {
-        final vidEasyService = VidEasyService();
-        data = await vidEasyService.getSources(
-          searchTitle,
-          widget.mediaItem?.year ?? '2020',
-          widget.tmdbId ??
-              0, // Fallback to 0 if null, VidEasy might handle or fail
-          isMovie: false,
-          season: nextS,
-          episode: nextE,
-        );
-        sources = (data['sources'] as List<VideoSource>?) ?? [];
-        captions = (data['captions'] as List<VideoCaption>?) ?? [];
-      } else if (_currentProvider == 'TG') {
-        String? imdbId = widget.mediaItem?.id;
-        if (imdbId != null && !imdbId.startsWith('tt')) {
-          final tmdbId = int.tryParse(imdbId);
-          if (tmdbId != null) {
-            imdbId = await RiveStreamService()
-                .getImdbIdFromTmdbId(tmdbId, isMovie: false);
-          }
-        }
-        if (imdbId != null && imdbId.isNotEmpty) {
-          final tgService = TgService();
-          final checkResult = await tgService.check(imdbId);
-          if (checkResult != null && checkResult.qualities.isNotEmpty) {
-            final statusResult = await tgService.status(imdbId);
-            if (statusResult != null && statusResult.ready) {
-              final streams = await tgService.getStreams(imdbId,
-                  season: nextS, episode: nextE);
-              if (streams.isNotEmpty) {
-                sources = streams
-                    .map((s) => VideoSource(
-                          url: '${TgService.baseUrl}${s.url}',
-                          quality: s.quality,
-                          format: 'Stream',
-                          size: 'Unknown',
-                        ))
-                    .toList();
+        data = await VidEasyService().getSources(searchTitle, widget.mediaItem?.year ?? '2020', widget.tmdbId ?? 0, isMovie: false, season: nextS, episode: nextE);
+      }
+
+      if (data != null) {
+        sources = List<VideoSource>.from(data['sources'] ?? []);
+        captions = List<VideoCaption>.from(data['captions'] ?? []);
+      }
+
+      // 2. FALLBACK
+      if (sources.isEmpty) {
+        final fallbacks = ['River', 'VidLink', 'VidEasy', 'KissKh']..remove(_currentProvider);
+        for (final p in fallbacks) {
+           print('[AutoPlay] Falling back to $p...');
+           Map<String, dynamic>? res;
+           if (p == 'River' && widget.tmdbId != null) {
+             res = await VideoSourceService().getVideoSources(widget.tmdbId.toString(), nextS.toString(), nextE.toString());
+           } else if (p == 'VidLink' && widget.tmdbId != null) {
+             res = await VidLinkService().getSources(widget.tmdbId!, isMovie: false, season: nextS, episode: nextE);
+           } else if (p == 'KissKh') {
+             res = await KissKhService().getSources(searchTitle, nextS, nextE);
+           } else if (p == 'VidEasy') {
+             res = await VidEasyService().getSources(searchTitle, widget.mediaItem?.year ?? '2020', widget.tmdbId ?? 0, isMovie: false, season: nextS, episode: nextE);
+           }
+           if (res != null) {
+              final newSources = List<VideoSource>.from(res['sources'] ?? []);
+              if (newSources.isNotEmpty) {
+                sources = newSources;
+                captions = List<VideoCaption>.from(res['captions'] ?? []);
+                break;
               }
-            }
-          }
+           }
         }
       }
 
@@ -1506,73 +1630,10 @@ class _PlayerScreenState extends State<PlayerScreen>
         return;
       }
 
-      final newUrl = sources.first.url;
-      Map<String, String>? headers =
-          sources.first.headers ?? widget.httpHeaders;
-
-      // Save position of current episode before switching
-      _savePosition();
-
-      if (mounted) {
-        setState(() {
-          _currentSources = sources;
-          _currentSeason = nextS;
-          _currentEpisode = nextE;
-          // Dynamically update title if it follows standard format, or just append S/E
-          if (widget.title != null) {
-            // Try to keep base title
-            final baseTitle = widget.title!
-                .replaceAll(RegExp(r'\s*[-\s]*S\d+E\d+.*$'), '')
-                .trim();
-            _currentTitle = '$baseTitle S${nextS}E${nextE}';
-          } else {
-            _currentTitle = '$searchTitle S${nextS}E${nextE}';
-          }
-
-          _externalSubtitles.clear();
-          for (final caption in captions) {
-            _externalSubtitles.add(ExternalSubtitle(
-                uri: caption.file,
-                title: caption.label,
-                language: caption.label.split(' - ').first.trim()));
-          }
-          _fetchingNextEpisode = false;
-        });
-      }
-
-      _player.setVolume(0.0);
-
-      await _player.open(
-        Media(newUrl, httpHeaders: headers),
-        play: true,
-      );
-
-      ExternalSubtitle? engSub;
-      try {
-        engSub = _externalSubtitles.firstWhere((s) =>
-            s.language.toLowerCase().contains('en') ||
-            s.title.toLowerCase().contains('english'));
-      } catch (_) {}
-
-      if (engSub != null) {
-        _selectedExternalSubtitleUri = engSub.uri;
-        _player.setSubtitleTrack(SubtitleTrack.uri(engSub.uri,
-            title: engSub.title, language: engSub.language));
-      }
-
-      try {
-        await Future.delayed(const Duration(milliseconds: 400));
-        await _player.stream.buffering
-            .firstWhere((b) => !b)
-            .timeout(const Duration(seconds: 5));
-      } catch (_) {}
-
-      _player.setVolume(_volumeBoost);
+      _switchToNewEpisode(nextS, nextE, sources, captions);
     } catch (e) {
-      if (mounted) {
-        setState(() => _fetchingNextEpisode = false);
-      }
-      _showNotif('Error: ${e.toString()}');
+      print('Error playing next episode: $e');
+      setState(() => _fetchingNextEpisode = false);
     }
   }
 

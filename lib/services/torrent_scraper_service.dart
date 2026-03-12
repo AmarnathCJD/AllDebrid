@@ -684,10 +684,8 @@ class TorrentScraperService {
   }
 
   Future<List<TorrentDownload>> _fetchRarbgDetails(String url) async {
-    print('DEBUG: Fetching RARBG details from: $url');
     try {
       final response = await _dio.get(url);
-      print('DEBUG: Response status: ${response.statusCode}');
 
       if (response.statusCode != 200) {
         throw Exception('Server returned ${response.statusCode}');
@@ -695,13 +693,11 @@ class TorrentScraperService {
 
       return _parseRarbgDetails(response.data);
     } catch (e) {
-      print('DEBUG: Error fetching details: $e');
       throw Exception('Error: $e');
     }
   }
 
   List<TorrentDownload> _parseRarbgDetails(String html) {
-    print('DEBUG: Parsing RARBG HTML details (Length: ${html.length})');
     final document = html_parser.parse(html);
     final downloads = <TorrentDownload>[];
 
@@ -713,7 +709,7 @@ class TorrentScraperService {
 
     // Parse using the table structure (robust way based on a.html)
     final headers = document.querySelectorAll('td.header22');
-    print('DEBUG: Found ${headers.length} header cells (td.header22)');
+
     for (final header in headers) {
       final text = header.text.trim();
       final valueCell = header.nextElementSibling;
@@ -721,12 +717,10 @@ class TorrentScraperService {
       if (valueCell == null) continue;
 
       if (text.contains('Torrent:')) {
-        print('DEBUG: Found "Torrent:" header');
         // Find magnet link in the value cell
         final anchor = valueCell.querySelector('a[href^="magnet:"]');
         if (anchor != null) {
           magnetUrl = anchor.attributes['href'];
-          print('DEBUG: Found magnet via "Torrent:" header strategy');
 
           // Try to extract name from dn param if not yet set
           if (magnetUrl != null) {
@@ -736,15 +730,12 @@ class TorrentScraperService {
                   Uri.decodeComponent(dnMatch.group(1)!.replaceAll('+', ' '));
             }
           }
-        } else {
-          print('DEBUG: No magnet anchor found inside Torrent value cell');
-        }
+        } else {}
       } else if (text.contains('Size:')) {
         size = valueCell.text.trim();
-        print('DEBUG: Found Size: $size');
       } else if (text.contains('Peers:')) {
         final peersText = valueCell.text;
-        print('DEBUG: Found Peers text: $peersText');
+
         final seedersMatch =
             RegExp(r'Seeders\s*:\s*(\d+)').firstMatch(peersText);
         final leechersMatch =
@@ -765,16 +756,14 @@ class TorrentScraperService {
 
     // Fallback: Find magnet link via magnet icon (specific to RARBG structure in a.html)
     if (magnetUrl == null) {
-      print('DEBUG: magnetUrl is null, trying Icon Strategy');
       final magnetImg = document.querySelector('img[src*="magnet.gif"]');
       if (magnetImg != null) {
-        print('DEBUG: Found magnet.gif image');
         final parent = magnetImg.parent;
         if (parent != null && parent.localName == 'a') {
           final href = parent.attributes['href'];
           if (href != null && href.startsWith('magnet:')) {
             magnetUrl = href;
-            print('DEBUG: Found magnet via Icon Strategy');
+
             // Try to extract name
             final dnMatch = RegExp(r'dn=([^&]+)').firstMatch(magnetUrl);
             if (dnMatch != null) {
@@ -788,13 +777,12 @@ class TorrentScraperService {
 
     // Fallback: Scan all links
     if (magnetUrl == null) {
-      print('DEBUG: magnetUrl is null, trying All Links Strategy');
       final allLinks = document.querySelectorAll('a');
       for (final link in allLinks) {
         final href = link.attributes['href'];
         if (href != null && href.startsWith('magnet:')) {
           magnetUrl = href;
-          print('DEBUG: Found magnet via All Links Strategy');
+
           // Extract name from magnet dn parameter
           final dnMatch = RegExp(r'dn=([^&]+)').firstMatch(magnetUrl);
           if (dnMatch != null) {
@@ -806,7 +794,6 @@ class TorrentScraperService {
     }
 
     if (magnetUrl != null) {
-      print('DEBUG: Successfully extracted download item: $name');
       downloads.add(TorrentDownload(
         name: name,
         size: size,
@@ -814,9 +801,7 @@ class TorrentScraperService {
         seeders: seeders,
         leechers: leechers,
       ));
-    } else {
-      print('DEBUG: FAILED TO FIND ANY MAGNET LINK');
-    }
+    } else {}
 
     return downloads;
   }

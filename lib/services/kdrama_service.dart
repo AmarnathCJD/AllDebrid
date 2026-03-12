@@ -1,5 +1,18 @@
 import 'package:html/parser.dart' as html_parser;
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+final _kdramaDio = Dio(BaseOptions(
+  connectTimeout: const Duration(seconds: 10),
+  receiveTimeout: const Duration(seconds: 10),
+  headers: {
+    'accept': 'text/html, */*; q=0.01',
+    'accept-language': 'en-US,en;q=0.9',
+    'cache-control': 'no-cache',
+    'user-agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  },
+));
 
 class KDramaItem {
   final String id;
@@ -26,35 +39,48 @@ class KDramaService {
     return _fetchDramas('$baseUrl/shows/top');
   }
 
+  Future<List<KDramaItem>> fetchTopAiringDramas() async {
+    return _fetchDramas('$baseUrl/shows/top_airing');
+  }
+
   Future<List<KDramaItem>> fetchLatestDramas() async {
     return _fetchDramas('$baseUrl/shows/newest');
   }
 
   Future<List<KDramaItem>> _fetchDramas(String url) async {
+    final cacheKey = 'kdrama_cache_${url.hashCode}';
     try {
-      final headers = {
-        'accept': 'text/html, */*; q=0.01',
-        'accept-language': 'en-US,en;q=0.9',
-        'cache-control': 'no-cache',
-        'user-agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      };
-
-      final response = await http
-          .get(
-            Uri.parse(url),
-            headers: headers,
-          )
-          .timeout(const Duration(seconds: 10));
-
+      final response = await _kdramaDio.get(url);
       if (response.statusCode == 200) {
-        return _parseDramas(response.body);
+        final body = response.data is String
+            ? response.data as String
+            : response.data.toString();
+        _saveToCache(cacheKey, body);
+        return _parseDramas(body);
       }
       return [];
     } catch (e) {
       print('[KDRAMA] Error fetching dramas: $e');
-      return [];
+      return getCachedDramas(url);
     }
+  }
+
+  Future<List<KDramaItem>> getCachedDramas(String url) async {
+    try {
+      final cacheKey = 'kdrama_cache_${url.hashCode}';
+      final prefs = await SharedPreferences.getInstance();
+      final html = prefs.getString(cacheKey);
+      if (html != null && html.isNotEmpty) {
+        return _parseDramas(html);
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  void _saveToCache(String key, String value) {
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.setString(key, value))
+        .catchError((_) => true);
   }
 
   List<KDramaItem> _parseDramas(String html) {
@@ -64,7 +90,7 @@ class KDramaService {
 
       // Find all drama items in the top list
       final dramaBoxes =
-          document.querySelectorAll('.m-t.nav-active-border .box');
+          document.querySelectorAll('.m-t.nav-active-border .box, .box');
 
       for (final box in dramaBoxes) {
         try {

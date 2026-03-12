@@ -32,9 +32,11 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  // Initialize services
   final storageService = StorageService();
   await storageService.init();
+
+  final notificationService = NotificationService();
+  await notificationService.init();
 
   final downloadService = DownloadService(storageService: storageService);
 
@@ -130,17 +132,23 @@ class _AppWrapperState extends State<AppWrapper> {
   @override
   void initState() {
     super.initState();
-    _initializeApp();
+    Future.microtask(() => _initializeApp());
   }
 
   Future<void> _initializeApp() async {
-    // Show splash for minimum time
-    await Future.delayed(const Duration(microseconds: 500));
-
-    // Initialize app
     if (mounted) {
       await context.read<AppProvider>().initialize();
     }
+
+    if (mounted) {
+      context.read<TrendingProvider>().loadTrendingData();
+      context.read<KDramaProvider>().loadTopDramas();
+      context.read<KDramaProvider>().loadTopAiringDramas();
+      context.read<KDramaProvider>().loadLatestDramas();
+      context.read<MagnetProvider>().fetchMagnets();
+    }
+
+    await Future.delayed(const Duration(milliseconds: 400));
 
     if (mounted) {
       setState(() => _isInitializing = false);

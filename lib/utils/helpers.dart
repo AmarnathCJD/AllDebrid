@@ -60,11 +60,6 @@ String formatRelativeDate(DateTime date) {
   }
 }
 
-String formatTimestamp(int timestamp) {
-  final date = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
-  return DateFormat('MMM d, yyyy h:mm a').format(date);
-}
-
 String getFileExtension(String filename) {
   final parts = filename.split('.');
   return parts.length > 1 ? parts.last.toLowerCase() : '';
@@ -164,16 +159,9 @@ String cleanFilename(String filename) {
   return name.replaceAll(RegExp(r'\s+'), ' ');
 }
 
-int getProgressColor(double progress) {
-  if (progress >= 100) {
-    return 0xFF10B981;
-  } else if (progress >= 75) {
-    return 0xFF22D3EE;
-  } else if (progress >= 50) {
-    return 0xFF6366F1;
-  } else if (progress >= 25) {
-    return 0xFFF59E0B;
-  } else {
-    return 0xFF64748B;
+String upgradePosterQuality(String posterUrl) {
+  if (posterUrl.contains('._V1_')) {
+    return posterUrl.replaceAll(RegExp(r'\._V1_.*'), '._V1_SX1000.jpg');
   }
+  return posterUrl;
 }

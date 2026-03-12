@@ -22,16 +22,11 @@ android {
 
     defaultConfig {
         applicationId = "com.alldebrid.alldebrid_app"
-        minSdk = 24  // Required for media_kit video player
+        minSdk = 33
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
-        
-        ndk {
-            // Specify which ABIs to include in the APK
-            abiFilters += listOf("arm64-v8a")
-        }
     }
 
     sourceSets {

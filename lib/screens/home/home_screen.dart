@@ -67,12 +67,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     _loadData();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      debugPrint('[HomeScreen] PostFrameCallback: Refreshing Providers');
       context.read<AppProvider>().refreshUser();
-      context.read<MagnetProvider>().fetchMagnets();
-      context.read<TrendingProvider>().loadTrendingData();
-      context.read<KDramaProvider>().loadTopDramas();
-      context.read<KDramaProvider>().loadLatestDramas();
     });
   }
 
@@ -135,7 +130,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         _riveService.getTrending(page: 2),
       ]);
 
-      if (mounted) {
+      if (mounted && freshResults.isNotEmpty && freshResults[0].isNotEmpty) {
         setState(() {
           _riveTrending = freshResults[0];
           _riveTrendingMovies =
@@ -154,6 +149,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       context.read<MagnetProvider>().fetchMagnets(),
       context.read<TrendingProvider>().loadTrendingData(),
       context.read<KDramaProvider>().loadTopDramas(),
+      context.read<KDramaProvider>().loadTopAiringDramas(),
       context.read<KDramaProvider>().loadLatestDramas(),
       _loadRiveContent(),
       _loadContinueWatching(),
@@ -181,20 +177,23 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
               // Background fade
               Positioned.fill(
                 child: FadeTransition(
-                  opacity: Tween<double>(begin: 0.0, end: 1.0).animate(forwardCurved),
+                  opacity: Tween<double>(begin: 0.0, end: 1.0)
+                      .animate(forwardCurved),
                   child: Container(color: Colors.black54),
                 ),
               ),
               // Content with smooth transitions
               FadeTransition(
-                opacity: Tween<double>(begin: 0.0, end: 1.0).animate(forwardCurved),
+                opacity:
+                    Tween<double>(begin: 0.0, end: 1.0).animate(forwardCurved),
                 child: SlideTransition(
                   position: Tween<Offset>(
                     begin: const Offset(0.0, 0.1),
                     end: Offset.zero,
                   ).animate(forwardCurved),
                   child: ScaleTransition(
-                    scale: Tween<double>(begin: 0.92, end: 1.0).animate(forwardCurved),
+                    scale: Tween<double>(begin: 0.92, end: 1.0)
+                        .animate(forwardCurved),
                     child: child,
                   ),
                 ),
@@ -265,6 +264,10 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                               child: _buildRiveTrendingTVShowsSection())),
                       const SliverToBoxAdapter(child: SizedBox(height: 8)),
                       SliverToBoxAdapter(
+                          child: RepaintBoundary(
+                              child: _buildTopAiringKDramasSection())),
+                      const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                      SliverToBoxAdapter(
                           child:
                               RepaintBoundary(child: _buildNetflixSection())),
                       const SliverToBoxAdapter(child: SizedBox(height: 8)),
@@ -327,7 +330,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                       child: Row(
                         children: [
                           Icon(Icons.search_rounded,
-                              color: AppTheme.primaryColor.withValues(alpha: 0.7)),
+                              color:
+                                  AppTheme.primaryColor.withValues(alpha: 0.7)),
                           const SizedBox(width: 12),
                           Text(
                             'Search movies, shows...',
@@ -362,29 +366,6 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildShimmerCardRow() {
-    return SizedBox(
-      height: 230,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        scrollDirection: Axis.horizontal,
-        itemCount: 6,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (_, __) => Shimmer.fromColors(
-          baseColor: Colors.white.withValues(alpha: 0.05),
-          highlightColor: Colors.white.withValues(alpha: 0.12),
-          child: Container(
-            width: 120,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -586,7 +567,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                                   gradient: LinearGradient(
                                     colors: [
                                       AppTheme.primaryColor,
-                                      AppTheme.primaryColor.withValues(alpha: 0.7),
+                                      AppTheme.primaryColor
+                                          .withValues(alpha: 0.7),
                                     ],
                                   ),
                                   borderRadius: BorderRadius.circular(6),
@@ -618,7 +600,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                                     color: Colors.white.withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(6),
                                     border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.1),
+                                      color:
+                                          Colors.white.withValues(alpha: 0.1),
                                       width: 0.5,
                                     ),
                                   ),
@@ -701,7 +684,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                 onTap: onTap,
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: AppTheme.primaryColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
@@ -739,13 +723,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
 
   Widget _buildRiveTrendingMoviesSection() {
     if (_riveTrendingMovies.isEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader('Trending Movies'),
-          _buildShimmerCardRow(),
-        ],
-      );
+      return const SizedBox.shrink();
     }
 
     return Column(
@@ -784,13 +762,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
 
   Widget _buildRiveTrendingTVShowsSection() {
     if (_riveTrendingTV.isEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader('Trending TV Shows'),
-          _buildShimmerCardRow(),
-        ],
-      );
+      return const SizedBox.shrink();
     }
 
     return Column(
@@ -984,6 +956,25 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     );
   }
 
+  Widget _buildTopAiringKDramasSection() {
+    return Consumer<KDramaProvider>(
+      builder: (context, kdramaProvider, _) {
+        if (kdramaProvider.topAiringDramas.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Column(
+          children: [
+            _buildKDramaCarousel(
+              'Top Airing Shows',
+              kdramaProvider.topAiringDramas,
+            ),
+            //const SizedBox(height: 16),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildTopKDramasSection() {
     return Consumer<KDramaProvider>(
       builder: (context, kdramaProvider, _) {
@@ -1100,8 +1091,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                       child: CachedNetworkImage(
                         imageUrl: item.posterUrl ?? '',
                         fit: BoxFit.cover,
-                        placeholder: (_, __) =>
-                            Container(color: Colors.white.withValues(alpha: 0.05)),
+                        placeholder: (_, __) => Container(
+                            color: Colors.white.withValues(alpha: 0.05)),
                         errorWidget: (_, __, ___) => Container(
                           color: Colors.white.withValues(alpha: 0.05),
                           child: const Icon(Icons.movie,
@@ -1126,22 +1117,23 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                             ),
                           ),
                           const SizedBox(height: 2),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.star_rounded,
-                                  color: Colors.amber, size: 10),
-                              const SizedBox(width: 3),
-                              Text(
-                                item.rating?.toStringAsFixed(1) ?? '0.0',
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
+                          if (item.rating != null && item.rating! > 0)
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.star_rounded,
+                                    color: Colors.amber, size: 10),
+                                const SizedBox(width: 3),
+                                Text(
+                                  item.rating!.toStringAsFixed(1),
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
+                              ],
+                            ),
                         ],
                       ),
                     ),
@@ -1232,12 +1224,12 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                     AspectRatio(
                       aspectRatio: 2 / 3,
                       child: Hero(
-                        tag: 'media_poster_${item.id}',
+                        tag: 'media_poster_kdrama_${item.id}',
                         child: CachedNetworkImage(
                           imageUrl: item.posterUrl ?? '',
                           fit: BoxFit.cover,
-                          placeholder: (_, __) =>
-                              Container(color: Colors.white.withValues(alpha: 0.05)),
+                          placeholder: (_, __) => Container(
+                              color: Colors.white.withValues(alpha: 0.05)),
                           errorWidget: (_, __, ___) => Container(
                             color: Colors.white.withValues(alpha: 0.05),
                             child: const Icon(Icons.movie,
@@ -1263,22 +1255,23 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                             ),
                           ),
                           const SizedBox(height: 2),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.star_rounded,
-                                  color: Colors.amber, size: 10),
-                              const SizedBox(width: 3),
-                              Text(
-                                item.rating?.toStringAsFixed(1) ?? '0.0',
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
+                          if (item.rating != null && item.rating! > 0)
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.star_rounded,
+                                    color: Colors.amber, size: 10),
+                                const SizedBox(width: 3),
+                                Text(
+                                  item.rating!.toStringAsFixed(1),
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
+                              ],
+                            ),
                         ],
                       ),
                     ),
@@ -1330,6 +1323,52 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                           HapticFeedback.lightImpact();
                           _handleMediaTap(wp.media);
                         },
+                        onLongPress: () {
+                          HapticFeedback.heavyImpact();
+                          showModalBottomSheet(
+                            context: context,
+                            backgroundColor: AppTheme.surfaceColor,
+                            builder: (BuildContext bc) {
+                              return SafeArea(
+                                child: Wrap(
+                                  children: [
+                                    ListTile(
+                                      leading: const Icon(Icons.delete_rounded,
+                                          color: AppTheme.errorColor),
+                                      title: const Text(
+                                          'Remove from Continue Watching',
+                                          style: TextStyle(
+                                              color: AppTheme.errorColor)),
+                                      onTap: () async {
+                                        Navigator.pop(bc);
+                                        await ImdbService()
+                                            .removeFromContinueWatching(
+                                                wp.media.id);
+                                        _loadContinueWatching();
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .clearSnackBars();
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                  'Removed from Continue Watching'),
+                                              duration: Duration(seconds: 1),
+                                              behavior:
+                                                  SnackBarBehavior.floating,
+                                              backgroundColor:
+                                                  Color(0xFF1E1E1E),
+                                            ),
+                                          );
+                                        }
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          );
+                        },
                         child: Container(
                           width: 120,
                           decoration: BoxDecoration(
@@ -1341,10 +1380,6 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                                 Colors.white.withValues(alpha: 0.08),
                                 Colors.white.withValues(alpha: 0.03),
                               ],
-                            ),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.15),
-                              width: 1,
                             ),
                             boxShadow: [
                               BoxShadow(
@@ -1364,15 +1399,17 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                                   fit: StackFit.expand,
                                   children: [
                                     Hero(
-                                      tag: 'hero_watchlist_${wp.media.id}_${wp.media.posterUrl.hashCode}',
+                                      tag:
+                                          'hero_watchlist_${wp.media.id}_${wp.media.posterUrl.hashCode}',
                                       child: CachedNetworkImage(
                                         imageUrl: wp.media.posterUrl,
                                         fit: BoxFit.cover,
                                         placeholder: (_, __) => Container(
-                                            color:
-                                                Colors.white.withValues(alpha: 0.05)),
+                                            color: Colors.white
+                                                .withValues(alpha: 0.05)),
                                         errorWidget: (_, __, ___) => Container(
-                                          color: Colors.white.withValues(alpha: 0.05),
+                                          color: Colors.white
+                                              .withValues(alpha: 0.05),
                                           child: const Icon(Icons.movie,
                                               color: Colors.white24, size: 30),
                                         ),
@@ -1401,7 +1438,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                                                     end: Alignment.centerRight,
                                                     colors: [
                                                       AppTheme.primaryColor
-                                                          .withValues(alpha: 0.7),
+                                                          .withValues(
+                                                              alpha: 0.7),
                                                       AppTheme.primaryColor,
                                                     ],
                                                   ),
@@ -1417,17 +1455,17 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                                         width: 40,
                                         height: 40,
                                         decoration: BoxDecoration(
-                                          color: Colors.black.withValues(alpha: 0.6),
+                                          color: Colors.black
+                                              .withValues(alpha: 0.6),
                                           shape: BoxShape.circle,
                                           border: Border.all(
-                                            color: Colors.white.withValues(alpha: 0.4),
+                                            color: Colors.white
+                                                .withValues(alpha: 0.4),
                                             width: 1.2,
                                           ),
                                         ),
-                                        child: Icon(
-                                            Icons.play_arrow_rounded,
-                                            color: Colors.white,
-                                            size: 20),
+                                        child: Icon(Icons.play_arrow_rounded,
+                                            color: Colors.white, size: 20),
                                       ),
                                     ),
                                     if (remainMin > 0)
@@ -1438,8 +1476,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 5, vertical: 2),
                                           decoration: BoxDecoration(
-                                            color:
-                                                Colors.black.withValues(alpha: 0.6),
+                                            color: Colors.black
+                                                .withValues(alpha: 0.6),
                                             borderRadius:
                                                 BorderRadius.circular(4),
                                           ),
@@ -1473,22 +1511,56 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                                       ),
                                     ),
                                     const SizedBox(height: 2),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          isTv ? 'SERIES' : 'MOVIE',
-                                          style: GoogleFonts.outfit(
-                                            color: AppTheme.primaryColor
-                                                .withValues(alpha: 0.8),
-                                            fontSize: 7.5,
-                                            fontWeight: FontWeight.w900,
-                                            letterSpacing: 0.5,
+                                    if (wp.media.rating != null &&
+                                        (double.tryParse(wp.media.rating!) ??
+                                                0) >
+                                            0)
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          const Icon(Icons.star_rounded,
+                                              color: Colors.amber, size: 10),
+                                          const SizedBox(width: 3),
+                                          Text(
+                                            wp.media.rating!,
+                                            style: GoogleFonts.outfit(
+                                              color: Colors.white
+                                                  .withValues(alpha: 0.9),
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                           ),
-                                        ),
-                                      ],
-                                    ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            isTv ? 'SERIES' : 'MOVIE',
+                                            style: GoogleFonts.outfit(
+                                              color: AppTheme.primaryColor
+                                                  .withValues(alpha: 0.8),
+                                              fontSize: 7.5,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: 0.5,
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    else
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            isTv ? 'SERIES' : 'MOVIE',
+                                            style: GoogleFonts.outfit(
+                                              color: AppTheme.primaryColor
+                                                  .withValues(alpha: 0.8),
+                                              fontSize: 7.5,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: 0.5,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                   ],
                                 ),
                               ),
@@ -1529,33 +1601,24 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                       ),
                     );
                   },
-                  borderRadius: BorderRadius.circular(8),
                   child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.08),
-                        width: 1,
-                      ),
-                    ),
+                    padding: const EdgeInsets.all(4),
                     child: Row(
                       children: [
                         Text(
-                          'GRID VIEW',
+                          'See All',
                           style: GoogleFonts.outfit(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
+                            color: Colors.white.withValues(alpha: 0.9),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
                             letterSpacing: 1.2,
                           ),
                         ),
                         const SizedBox(width: 6),
                         Icon(
-                          Icons.grid_view_rounded,
+                          Icons.chevron_right,
                           color: Colors.white.withValues(alpha: 0.4),
-                          size: 10,
+                          size: 18,
                         ),
                       ],
                     ),
@@ -1663,22 +1726,24 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.star_rounded,
-                            color: Colors.amber, size: 10),
-                        const SizedBox(width: 3),
-                        Text(
-                          item.rating ?? '0.0',
-                          style: GoogleFonts.outfit(
-                            color: Colors.white.withValues(alpha: 0.9),
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
+                    if (item.rating != null &&
+                        (double.tryParse(item.rating!) ?? 0) > 0)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.star_rounded,
+                              color: Colors.amber, size: 10),
+                          const SizedBox(width: 3),
+                          Text(
+                            item.rating!,
+                            style: GoogleFonts.outfit(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
                   ],
                 ),
               ),
@@ -1694,11 +1759,13 @@ class _PressScaleCard extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
+  final VoidCallback? onLongPress;
 
   const _PressScaleCard({
     required this.child,
     this.onTap,
     this.onDoubleTap,
+    this.onLongPress,
   });
 
   @override
@@ -1736,6 +1803,7 @@ class _PressScaleCardState extends State<_PressScaleCard>
     return GestureDetector(
       onTap: widget.onTap,
       onDoubleTap: widget.onDoubleTap,
+      onLongPress: widget.onLongPress,
       onTapDown: (_) => _controller.forward(),
       onTapUp: (_) => _controller.reverse(),
       onTapCancel: () => _controller.reverse(),

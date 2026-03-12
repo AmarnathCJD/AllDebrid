@@ -1,6 +1,12 @@
 import 'dart:io';
-import 'package:http/http.dart' as http;
+import 'dart:typed_data';
+import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
+
+final _subtitleDio = Dio(BaseOptions(
+  connectTimeout: const Duration(seconds: 10),
+  receiveTimeout: const Duration(seconds: 10),
+));
 
 class SubtitleCatResult {
   final String id;
@@ -56,21 +62,16 @@ class SubtitleCatService {
     String query,
   ) async {
     try {
-      print('Searching SubtitleCat for: $query');
       final url = '$baseUrl/index.php?search=${Uri.encodeComponent(query)}';
-      final response = await http.get(Uri.parse(url));
+      final response = await _subtitleDio.get<String>(url,
+          options: Options(responseType: ResponseType.plain));
 
-      if (response.statusCode != 200) {
+      if (response.statusCode != 200 || response.data == null) {
         throw Exception('Failed to search subtitles');
       }
 
       final results = <SubtitleCatResult>[];
-      final html = response.body;
-      print('Search response length: ${html.length}');
-      print('Search snippet: ${html.substring(0, html.length.clamp(0, 200))}');
-
-      // Parse search results from HTML
-      // Look for links in format: /subs/ID/filename
+      final html = response.data!;
       final pattern = RegExp(
         r"""<a[^>]+href=["']\/?(subs\/\d+\/[^"']+)["'][^>]*>([^<]+)<\/a>""",
         caseSensitive: false,
@@ -81,7 +82,6 @@ class SubtitleCatService {
       for (final match in pattern.allMatches(html)) {
         final rawUrl = match.group(1) ?? '';
         final fileName = match.group(2) ?? '';
-        print('Regex match: url=$rawUrl title=$fileName');
 
         if (rawUrl.isNotEmpty && fileName.isNotEmpty) {
           final normalizedUrl = _ensureLeadingSlash(rawUrl);
@@ -98,10 +98,8 @@ class SubtitleCatService {
         }
       }
 
-      print('Found ${results.length} subtitle results');
       return results;
     } catch (e) {
-      print('Error searching subtitles: $e');
       return [];
     }
   }
@@ -111,20 +109,17 @@ class SubtitleCatService {
     String detailsUrl,
   ) async {
     try {
-      print('Fetching subtitle details from: $detailsUrl');
       final normalizedDetails = _ensureLeadingSlash(detailsUrl);
       final url = '$baseUrl$normalizedDetails';
-      final response = await http.get(Uri.parse(url));
+      final response = await _subtitleDio.get<String>(url,
+          options: Options(responseType: ResponseType.plain));
 
-      if (response.statusCode != 200) {
+      if (response.statusCode != 200 || response.data == null) {
         throw Exception('Failed to fetch subtitle details');
       }
       final languages = <SubtitleCatLanguage>[];
-      final html = response.body;
+      final html = response.data!;
 
-      // Parse language links from details page
-      // Look for download links like: /subs/75/filename-ar.srt
-      // Match pattern: flag span, language span, download link (skip translate buttons)
       final pattern = RegExp(
         r"""<div[^>]*class="sub-single"[^>]*>\s*<span><img[^>]+></span>\s*<span>([^<]+)</span>\s*<span><a[^>]+href=['"](/subs/\d+/[^'"<>]+\.(?:srt|vtt|ass|ssa))['"][^>]*class="green-link">Download</a>""",
         caseSensitive: false,
@@ -133,7 +128,6 @@ class SubtitleCatService {
 
       for (final match in pattern.allMatches(html)) {
         final languageNameRaw = match.group(1)?.trim() ?? '';
-        // Decode HTML entities like &nbsp; &amp; etc
         final languageName = languageNameRaw
             .replaceAll('&nbsp;', ' ')
             .replaceAll('&amp;', '&')
@@ -143,7 +137,6 @@ class SubtitleCatService {
             .replaceAll('&#39;', "'")
             .trim();
         final rawDownloadPath = match.group(2) ?? '';
-        print('Language match: $languageName download=$rawDownloadPath');
 
         if (languageName.isNotEmpty && rawDownloadPath.isNotEmpty) {
           final normalizedDownloadPath = _ensureLeadingSlash(rawDownloadPath);
@@ -167,36 +160,30 @@ class SubtitleCatService {
         if (bPriority == -1) return -1;
         return aPriority.compareTo(bPriority);
       });
-
-      print('Found ${languages.length} language variants');
       return languages;
     } catch (e) {
-      print('Error fetching subtitle languages: $e');
       return [];
     }
   }
 
-  /// Download subtitle file
   static Future<String?> downloadSubtitle(
     String downloadUrl,
     String fileName,
   ) async {
     try {
-      print('Downloading subtitle from: $downloadUrl');
-      final response = await http.get(Uri.parse(downloadUrl));
+      final response = await _subtitleDio.get<Uint8List>(downloadUrl,
+          options: Options(responseType: ResponseType.bytes));
 
-      if (response.statusCode != 200) {
+      if (response.statusCode != 200 || response.data == null) {
         throw Exception('Failed to download subtitle');
       }
 
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(response.bodyBytes);
+      await file.writeAsBytes(response.data!);
 
-      print('Subtitle saved to: ${file.path}');
       return file.path;
     } catch (e) {
-      print('Error downloading subtitle: $e');
       return null;
     }
   }

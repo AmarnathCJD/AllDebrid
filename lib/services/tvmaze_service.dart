@@ -1,6 +1,11 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+final _dio = Dio(BaseOptions(
+  connectTimeout: const Duration(seconds: 8),
+  receiveTimeout: const Duration(seconds: 8),
+));
 
 class TVMazeService {
   static const String _baseUrl = 'https://api.tvmaze.com';
@@ -15,13 +20,12 @@ class TVMazeService {
 
     try {
       final encodedTitle = Uri.encodeComponent(title);
-      final response = await http
-          .get(Uri.parse('$_baseUrl/singlesearch/shows?q=$encodedTitle'))
-          .timeout(const Duration(seconds: 8));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        await _setCache(cacheKey, response.body);
+      final response = await _dio.get(
+          '$_baseUrl/singlesearch/shows?q=$encodedTitle');
+      if (response.statusCode == 200 && response.data != null) {
+        final data = response.data as Map<String, dynamic>;
+        final jsonStr = jsonEncode(data);
+        await _setCache(cacheKey, jsonStr);
         return TVMazeShow.fromJson(data);
       }
     } catch (_) {}
@@ -38,15 +42,12 @@ class TVMazeService {
     }
 
     try {
-      final response = await http
-          .get(Uri.parse('$_baseUrl/shows/$showId?embed=nextepisode'))
-          .timeout(const Duration(seconds: 8));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final response = await _dio.get(
+          '$_baseUrl/shows/$showId?embed=nextepisode');
+      if (response.statusCode == 200 && response.data != null) {
+        final data = response.data as Map<String, dynamic>;
         final embedded = data['_embedded'] as Map<String, dynamic>?;
         final nextEp = embedded?['nextepisode'] as Map<String, dynamic>?;
-
         if (nextEp != null) {
           final episode = TVMazeNextEpisode.fromJson(nextEp);
           await _setCache(cacheKey, jsonEncode(nextEp),
@@ -208,10 +209,21 @@ class TVMazeNextEpisode {
     final until = timeUntilAir;
     if (until == null) return 'Aired';
 
-    if (until.inDays > 1) return 'in ${until.inDays} days';
-    if (until.inDays == 1) return 'Tomorrow';
-    if (until.inHours > 0) return 'in ${until.inHours}h';
-    return 'Soon';
+    final days = until.inDays;
+    final hours = until.inHours.remainder(24);
+    final minutes = until.inMinutes.remainder(60);
+    final seconds = until.inSeconds.remainder(60);
+
+    final List<String> parts = [];
+    if (days > 0) parts.add('${days}d');
+    if (hours > 0) parts.add('${hours}h');
+    if (minutes > 0) parts.add('${minutes}m');
+    if (days == 0) {
+      parts.add('${seconds}s');
+    }
+
+    if (parts.isEmpty) return 'Airing Soon';
+    return 'in ${parts.join(' ')}';
   }
 
   String get episodeLabel =>

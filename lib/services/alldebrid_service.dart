@@ -43,12 +43,6 @@ class AllDebridService {
     return User.fromJson(response.data['data']);
   }
 
-  Future<bool> ping() async {
-    final response = await _dio.get('/$apiVersion/ping');
-    _checkError(response.data);
-    return response.data['data']?['ping'] == 'pong';
-  }
-
   // ==================== LINKS ====================
 
   Future<List<LinkInfo>> getLinkInfo(List<String> links,

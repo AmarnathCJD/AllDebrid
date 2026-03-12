@@ -33,14 +33,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.0"
-  blur:
-    dependency: "direct main"
-    description:
-      name: blur
-      sha256: "1318cf79c735784eda8dffc77b1085b757373d233c1c8d94dc0cfd81530a3574"
-      url: "https://pub.dev"
-    source: hosted
-    version: "4.0.2"
   boolean_selector:
     dependency: transitive
     description:
@@ -153,14 +145,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.2"
-  cupertino_icons:
-    dependency: "direct main"
-    description:
-      name: cupertino_icons
-      sha256: ba631d1c7f7bef6b729a622b7b752645a2d076dba9976925b8f25725a30e1ee6
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.8"
   dbus:
     dependency: transitive
     description:
@@ -352,14 +336,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "9.0.0"
-  glass:
-    dependency: "direct main"
-    description:
-      name: glass
-      sha256: "444684d73df51782d3d9e0dec7cb37fbe1f4a1456e1dc591663966ab37c4cd0e"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.0.0+2"
   glob:
     dependency: transitive
     description:
@@ -393,7 +369,7 @@ packages:
     source: hosted
     version: "0.15.6"
   http:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: http
       sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
@@ -776,14 +752,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
-  pull_to_refresh_flutter3:
-    dependency: "direct main"
-    description:
-      name: pull_to_refresh_flutter3
-      sha256: "37a88d901cca9a46dbdd46523de8e7b35a3e58634a0e775b1a5904981f69b353"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.0.2"
   rxdart:
     dependency: transitive
     description:
