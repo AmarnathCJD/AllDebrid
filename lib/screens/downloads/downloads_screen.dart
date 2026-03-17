@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -347,8 +346,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                 Container(
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
-                                    color:
-                                        AppTheme.primaryColor.withValues(alpha: 0.1),
+                                    color: AppTheme.primaryColor
+                                        .withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Icon(
@@ -522,8 +521,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                 child: Container(
                                   padding: const EdgeInsets.all(6),
                                   decoration: BoxDecoration(
-                                    color:
-                                        Colors.green.shade400.withValues(alpha: 0.2),
+                                    color: Colors.green.shade400
+                                        .withValues(alpha: 0.2),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Icon(
@@ -550,8 +549,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(6),
                                 decoration: BoxDecoration(
-                                  color:
-                                      const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                                  color: const Color(0xFFF59E0B)
+                                      .withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Icon(
@@ -578,7 +577,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(6),
                                 decoration: BoxDecoration(
-                                  color: AppTheme.errorColor.withValues(alpha: 0.2),
+                                  color: AppTheme.errorColor
+                                      .withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: const Icon(
@@ -618,8 +618,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                 child: Container(
                                   padding: const EdgeInsets.all(6),
                                   decoration: BoxDecoration(
-                                    color:
-                                        AppTheme.primaryColor.withValues(alpha: 0.2),
+                                    color: AppTheme.primaryColor
+                                        .withValues(alpha: 0.2),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: const Icon(
@@ -671,7 +671,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(6),
                                 decoration: BoxDecoration(
-                                  color: AppTheme.errorColor.withValues(alpha: 0.2),
+                                  color: AppTheme.errorColor
+                                      .withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: const Icon(

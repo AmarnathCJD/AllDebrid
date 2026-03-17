@@ -6,6 +6,7 @@ import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 
 import 'home/home_screen.dart';
+import 'browse/browse_page.dart';
 import 'magnets/magnets_screen.dart';
 import 'downloads/downloads_screen.dart';
 import 'watchlist/watchlist_screen.dart';
@@ -19,15 +20,14 @@ class MainNavigation extends StatefulWidget {
 }
 
 class _MainNavigationState extends State<MainNavigation> {
-  @override
-  Widget build(BuildContext context) {
-    final navigationProvider = Provider.of<NavigationProvider>(context);
-    final appProvider = Provider.of<AppProvider>(context);
-    final hasKey = appProvider.hasApiKey;
+  late List<Widget> _screens;
+  bool _initialized = false;
 
-    final screens = hasKey
+  void _initScreens(bool hasKey) {
+    _screens = hasKey
         ? [
             HomeScreen(key: HomeScreen.homeKey),
+            const BrowsePage(),
             const WatchlistScreen(),
             const MagnetsScreen(),
             const DownloadsScreen(),
@@ -35,12 +35,25 @@ class _MainNavigationState extends State<MainNavigation> {
           ]
         : [
             HomeScreen(key: HomeScreen.homeKey),
+            const BrowsePage(),
             const WatchlistScreen(),
             const SettingsScreen(),
           ];
+    _initialized = true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final navigationProvider = Provider.of<NavigationProvider>(context);
+    final appProvider = Provider.of<AppProvider>(context);
+    final hasKey = appProvider.hasApiKey;
+
+    if (!_initialized) {
+      _initScreens(hasKey);
+    }
 
     int currentIndex = navigationProvider.currentIndex;
-    if (currentIndex >= screens.length) {
+    if (currentIndex >= _screens.length) {
       currentIndex = 0;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         navigationProvider.setIndex(0);
@@ -59,6 +72,7 @@ class _MainNavigationState extends State<MainNavigation> {
     final navItems = hasKey
         ? [
             (Icons.home_outlined, Icons.home_rounded, 'Home'),
+            (Icons.explore_outlined, Icons.explore_rounded, 'Browse'),
             (Icons.bookmark_outlined, Icons.bookmark_rounded, 'Watchlist'),
             (Icons.link_outlined, Icons.link_rounded, 'Magnets'),
             (Icons.download_outlined, Icons.download_rounded, 'Downloads'),
@@ -66,6 +80,7 @@ class _MainNavigationState extends State<MainNavigation> {
           ]
         : [
             (Icons.home_outlined, Icons.home_rounded, 'Home'),
+            (Icons.explore_outlined, Icons.explore_rounded, 'Browse'),
             (Icons.bookmark_outlined, Icons.bookmark_rounded, 'Watchlist'),
             (Icons.tune_outlined, Icons.tune_rounded, 'Settings'),
           ];
@@ -75,7 +90,7 @@ class _MainNavigationState extends State<MainNavigation> {
       extendBody: true,
       body: IndexedStack(
         index: currentIndex,
-        children: screens,
+        children: _screens,
       ),
       bottomNavigationBar: _PremiumNavBar(
         items: navItems,

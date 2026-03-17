@@ -78,19 +78,14 @@ class _SearchPageState extends State<SearchPage> {
 
   Future<void> _fetchInitialData() async {
     setState(() => _isLoadingTrending = true);
-    await Future.wait([
-      _fetchTrending(),
-      _fetchRecents(),
-    ]);
+    await Future.wait([_fetchTrending(), _fetchRecents()]);
     if (mounted) setState(() => _isLoadingTrending = false);
   }
 
   Future<void> _fetchRecents() async {
     try {
       final recents = await _imdbService.getRecents();
-      if (mounted) {
-        setState(() => _recentItems = recents);
-      }
+      if (mounted) setState(() => _recentItems = recents);
     } catch (_) {}
   }
 
@@ -108,25 +103,19 @@ class _SearchPageState extends State<SearchPage> {
 
   Future<void> _loadMore() async {
     if (_isLoading || _isLoadingMore) return;
-
-    // Only paginate if filtering allows it
     if (_searchController.text.isEmpty && _selectedFilter != 'All') return;
-
-    // Don't paginate for cast searches - they already get all results
     if (_isCastSearch) return;
 
     setState(() => _isLoadingMore = true);
     try {
       final nextPage = _currentPage + 1;
       List<RiveStreamMedia> newItems = [];
-
       if (_searchController.text.isNotEmpty) {
         newItems = await _riveService.searchMulti(_searchController.text,
             page: nextPage);
       } else {
         newItems = await _riveService.getTrending(page: nextPage);
       }
-
       if (mounted) {
         setState(() {
           final filtered =
@@ -154,9 +143,7 @@ class _SearchPageState extends State<SearchPage> {
         _currentPage = 1;
         _performSearch(query);
       } else {
-        setState(() {
-          _searchResults = [];
-        });
+        setState(() => _searchResults = []);
       }
     });
   }
@@ -165,31 +152,20 @@ class _SearchPageState extends State<SearchPage> {
     setState(() => _isLoadingSearch = true);
     try {
       late List<RiveStreamMedia> results;
-
       if (_isCastSearch) {
-        // Use person search for cast members
-        print('SearchPage: Searching for cast filmography: $query');
         results =
             await _riveService.searchPersonAndGetFilmography(query, page: 1);
-        print('SearchPage: Got ${results.length} results from cast search');
       } else {
-        // Use general multi search
-        print('SearchPage: Searching for: $query');
         results = await _riveService.searchMulti(query, page: 1);
-        print('SearchPage: Got ${results.length} results from general search');
       }
-
       if (mounted) {
-        final filtered =
-            results.where((item) => item.fullPosterUrl.isNotEmpty).toList();
-        print('SearchPage: After filtering, ${filtered.length} results remain');
         setState(() {
-          _searchResults = filtered;
+          _searchResults =
+              results.where((item) => item.fullPosterUrl.isNotEmpty).toList();
           _isLoadingSearch = false;
         });
       }
     } catch (e) {
-      print('SearchPage Error: $e');
       if (mounted) setState(() => _isLoadingSearch = false);
     }
   }
@@ -219,7 +195,6 @@ class _SearchPageState extends State<SearchPage> {
       description: item.overview,
       backdropUrl: item.fullBackdropUrl,
     );
-
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -228,17 +203,14 @@ class _SearchPageState extends State<SearchPage> {
         pageBuilder: (context, animation, secondaryAnimation) =>
             MediaInfoScreen(item: imdbItem),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final curved = CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-          );
+          final curved =
+              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
           return FadeTransition(
             opacity: curved,
             child: SlideTransition(
               position: Tween<Offset>(
-                begin: const Offset(0.0, 0.05),
-                end: Offset.zero,
-              ).animate(curved),
+                      begin: const Offset(0.0, 0.05), end: Offset.zero)
+                  .animate(curved),
               child: child,
             ),
           );
@@ -258,9 +230,7 @@ class _SearchPageState extends State<SearchPage> {
               children: [
                 _buildSearchHeader(),
                 _buildFilters(),
-                Expanded(
-                  child: _buildBody(),
-                ),
+                Expanded(child: _buildBody()),
               ],
             ),
           ),
@@ -272,91 +242,103 @@ class _SearchPageState extends State<SearchPage> {
   Widget _buildSearchHeader() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-      child: Hero(
-        tag: 'search_bar',
-        child: Material(
-          type: MaterialType.transparency,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: AnimatedContainer(
-                duration: 200.ms,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: _isSearchFocused
-                      ? Colors.white.withValues(alpha: 0.12)
-                      : Colors.white.withValues(alpha: 0.06),
-                ),
-                child: TextField(
-                  controller: _searchController,
-                  focusNode: _searchFocusNode,
-                  onChanged: _onSearchChanged,
-                  style: GoogleFonts.inter(color: Colors.white, fontSize: 16),
-                  cursorColor: AppTheme.primaryColor,
-                  textAlignVertical: TextAlignVertical.center,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    hintText: 'Search movies, shows...',
-                    hintStyle: GoogleFonts.inter(
-                        color: Colors.white.withValues(alpha: 0.3),
-                        fontSize: 15,
-                        letterSpacing: 0.25),
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    prefixIconConstraints:
-                        const BoxConstraints(minWidth: 40, maxHeight: 48),
-                    prefixIcon: Padding(
-                      padding: const EdgeInsets.only(left: 16, right: 8.5),
-                      child: Icon(Icons.search_rounded,
-                          color: _isSearchFocused
-                              ? AppTheme.primaryColor
-                              : AppTheme.primaryColor.withValues(alpha: 0.7),
-                          size: 21.5),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.arrow_back_ios_new_rounded,
+                  color: Colors.white70, size: 17),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Hero(
+              tag: 'search_bar',
+              child: Material(
+                type: MaterialType.transparency,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: AnimatedContainer(
+                      duration: 200.ms,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: _isSearchFocused
+                            ? Colors.white.withValues(alpha: 0.12)
+                            : Colors.white.withValues(alpha: 0.06),
+                      ),
+                      child: TextField(
+                        controller: _searchController,
+                        focusNode: _searchFocusNode,
+                        onChanged: _onSearchChanged,
+                        style: GoogleFonts.inter(
+                            color: Colors.white, fontSize: 15),
+                        cursorColor: AppTheme.primaryColor,
+                        textAlignVertical: TextAlignVertical.center,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          hintText: 'Search movies, shows...',
+                          hintStyle: GoogleFonts.inter(
+                              color: Colors.white.withValues(alpha: 0.3),
+                              fontSize: 14),
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          prefixIconConstraints:
+                              const BoxConstraints(minWidth: 40, maxHeight: 44),
+                          prefixIcon: Padding(
+                            padding: const EdgeInsets.only(left: 14, right: 8),
+                            child: Icon(Icons.search_rounded,
+                                color: _isSearchFocused
+                                    ? AppTheme.primaryColor
+                                    : AppTheme.primaryColor
+                                        .withValues(alpha: 0.7),
+                                size: 20),
+                          ),
+                          suffixIcon: _searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear_rounded,
+                                      size: 17),
+                                  color: Colors.white54,
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    _onSearchChanged('');
+                                    setState(() {});
+                                  },
+                                )
+                              : null,
+                          contentPadding:
+                              const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
                     ),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear_rounded, size: 18),
-                            color: Colors.white54,
-                            onPressed: () {
-                              _searchController.clear();
-                              _onSearchChanged('');
-                              setState(() {});
-                            },
-                          )
-                        : null,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 11.2),
                   ),
                 ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
 
   Widget _buildFilters() {
     return Container(
-      height: 60,
-      padding: const EdgeInsets.fromLTRB(5, 0, 16, 0),
+      height: 52,
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         clipBehavior: Clip.none,
         child: Row(
           children: [
-            IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: Colors.white70, size: 18),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-              constraints: const BoxConstraints(),
-              style: IconButton.styleFrom(
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-            const SizedBox(width: 12),
             _buildFilterChip('All'),
             const SizedBox(width: 10),
             _buildFilterChip('Movies'),
@@ -397,10 +379,10 @@ class _SearchPageState extends State<SearchPage> {
           filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
           child: AnimatedContainer(
             duration: 200.ms,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
             decoration: BoxDecoration(
               color: isSelected
-                  ? AppTheme.primaryColor.withValues(alpha: 0.8)
+                  ? AppTheme.primaryColor.withValues(alpha: 0.85)
                   : Colors.white.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(6),
               border: Border.all(
@@ -465,63 +447,16 @@ class _SearchPageState extends State<SearchPage> {
                     curve: Curves.easeInOut,
                   ),
               const SizedBox(height: 16),
-
-              Text(
-                'No results found',
-                style: GoogleFonts.inter(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              Text('No results found',
+                  style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
-              Text(
-                'Try a different search term',
-                style: GoogleFonts.inter(
-                  color: Colors.white.withValues(alpha: 0.4),
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 24),
-              // Genre quick-access suggestions
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  'Action',
-                  'Comedy',
-                  'Drama',
-                  'Sci-Fi',
-                  'Horror',
-                  'Romance'
-                ]
-                    .map((genre) => GestureDetector(
-                          onTap: () {
-                            _searchController.text = genre;
-                            _onSearchChanged(genre);
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.05),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.08)),
-                            ),
-                            child: Text(
-                              genre,
-                              style: GoogleFonts.inter(
-                                color: Colors.white60,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ))
-                    .toList(),
-              ),
+              Text('Try a different search term',
+                  style: GoogleFonts.inter(
+                      color: Colors.white.withValues(alpha: 0.4),
+                      fontSize: 13)),
             ],
           ),
         );
@@ -563,9 +498,9 @@ class _SearchPageState extends State<SearchPage> {
                     itemCount: _recentItems.length,
                     itemBuilder: (context, index) {
                       final item = _recentItems[index];
-                      if (item.posterUrl.isEmpty)
+                      if (item.posterUrl.isEmpty) {
                         return const SizedBox.shrink();
-
+                      }
                       return Padding(
                         padding: const EdgeInsets.only(right: 12),
                         child: GestureDetector(
@@ -577,22 +512,21 @@ class _SearchPageState extends State<SearchPage> {
                                     const Duration(milliseconds: 500),
                                 reverseTransitionDuration:
                                     const Duration(milliseconds: 400),
-                                pageBuilder:
-                                    (context, animation, secondaryAnimation) =>
-                                        MediaInfoScreen(item: item),
+                                pageBuilder: (context, animation,
+                                        secondaryAnimation) =>
+                                    MediaInfoScreen(item: item),
                                 transitionsBuilder: (context, animation,
                                     secondaryAnimation, child) {
                                   final curved = CurvedAnimation(
-                                    parent: animation,
-                                    curve: Curves.easeOutCubic,
-                                  );
+                                      parent: animation,
+                                      curve: Curves.easeOutCubic);
                                   return FadeTransition(
                                     opacity: curved,
                                     child: SlideTransition(
                                       position: Tween<Offset>(
-                                        begin: const Offset(0.0, 0.05),
-                                        end: Offset.zero,
-                                      ).animate(curved),
+                                              begin: const Offset(0.0, 0.05),
+                                              end: Offset.zero)
+                                          .animate(curved),
                                       child: child,
                                     ),
                                   );
@@ -605,28 +539,15 @@ class _SearchPageState extends State<SearchPage> {
                               Expanded(
                                 child: AspectRatio(
                                   aspectRatio: 2 / 3,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(12),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black
-                                              .withValues(alpha: 0.2),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 4),
-                                        ),
-                                      ],
-                                    ),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: CachedNetworkImage(
-                                        imageUrl: item.posterUrl,
-                                        fit: BoxFit.cover,
-                                        placeholder: (_, __) =>
-                                            Container(color: Colors.white10),
-                                        errorWidget: (_, __, ___) =>
-                                            Container(color: Colors.white10),
-                                      ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: CachedNetworkImage(
+                                      imageUrl: item.posterUrl,
+                                      fit: BoxFit.cover,
+                                      placeholder: (_, __) =>
+                                          Container(color: Colors.white10),
+                                      errorWidget: (_, __, ___) =>
+                                          Container(color: Colors.white10),
                                     ),
                                   ),
                                 ),
@@ -719,7 +640,7 @@ class _SearchPageState extends State<SearchPage> {
       onTap: () => _handleMediaTap(item),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.transparent, // Transparent base for glass
+          color: Colors.transparent,
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
@@ -748,8 +669,6 @@ class _SearchPageState extends State<SearchPage> {
                   ),
                 ),
               ),
-
-              // Glass Info Panel at Bottom
               Positioned(
                 bottom: 5,
                 left: 5,
@@ -812,8 +731,6 @@ class _SearchPageState extends State<SearchPage> {
                   ),
                 ),
               ),
-
-              // MediaType Badge (Glass)
               if (item.mediaType.isNotEmpty)
                 Positioned(
                   top: 8,
@@ -834,7 +751,7 @@ class _SearchPageState extends State<SearchPage> {
                         ),
                         child: Text(
                           item.mediaType == 'movie' ? 'MOVIE' : 'TV',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 8,
                             fontWeight: FontWeight.w800,

@@ -20,7 +20,6 @@ class KDramaProvider extends ChangeNotifier {
         .getCachedDramas('${KDramaService.baseUrl}/shows/top');
     if (cachedDramas.isNotEmpty) {
       _topDramas = cachedDramas;
-      _topDramas.shuffle();
       notifyListeners();
     } else {
       _isLoading = true;
@@ -30,7 +29,6 @@ class KDramaProvider extends ChangeNotifier {
     try {
       final dramas = await _dramaService.fetchTopDramas();
       _topDramas = dramas;
-      _topDramas.shuffle();
     } catch (e) {
       print('[KDRAMA PROVIDER] Error loading top dramas: $e');
     } finally {
@@ -45,7 +43,6 @@ class KDramaProvider extends ChangeNotifier {
         .getCachedDramas('${KDramaService.baseUrl}/shows/newest');
     if (cachedDramas.isNotEmpty) {
       _latestDramas = cachedDramas;
-      _latestDramas.shuffle();
       notifyListeners();
     } else {
       _isLoading = true;
@@ -56,7 +53,6 @@ class KDramaProvider extends ChangeNotifier {
     try {
       final dramas = await _dramaService.fetchLatestDramas();
       _latestDramas = dramas;
-      _latestDramas.shuffle();
     } catch (e) {
       print('[KDRAMA PROVIDER] Error loading latest dramas: $e');
     } finally {
@@ -71,7 +67,6 @@ class KDramaProvider extends ChangeNotifier {
         .getCachedDramas('${KDramaService.baseUrl}/shows/top_airing');
     if (cachedDramas.isNotEmpty) {
       _topAiringDramas = cachedDramas;
-      _topAiringDramas.shuffle();
       notifyListeners();
     } else {
       _isLoading = true;
@@ -82,7 +77,6 @@ class KDramaProvider extends ChangeNotifier {
     try {
       final dramas = await _dramaService.fetchTopAiringDramas();
       _topAiringDramas = dramas;
-      _topAiringDramas.shuffle();
     } catch (e) {
       print('[KDRAMA PROVIDER] Error loading top airing dramas: $e');
     } finally {

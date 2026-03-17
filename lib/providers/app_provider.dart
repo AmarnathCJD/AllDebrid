@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import '../models/models.dart';
 import '../services/services.dart';
+import '../services/session_storage.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/material.dart';
 
 /// App Provider - Main state management for the app
 class AppProvider extends ChangeNotifier {
   final StorageService _storageService;
+  final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
   AllDebridService? _allDebridService;
   bool _isInitialized = false;
   bool _isLoading = false;
@@ -148,8 +150,24 @@ class AppProvider extends ChangeNotifier {
 
       final storedApiKey = _storageService.getApiKey();
       if (storedApiKey != null && storedApiKey.isNotEmpty) {
-        await _initializeWithApiKey(storedApiKey);
+        // Skip network calls during init — set up service only, fetch in bg
+        await _initializeWithApiKey(storedApiKey, fetchRemote: false);
+        _fetchRemoteDataInBackground(); // fire-and-forget
       }
+
+      SessionStorage.getSession().then((tgSession) async {
+        if (tgSession != null && tgSession.isNotEmpty) {
+          try {
+            final chatId = await SessionStorage.getChatId();
+            final chatHash = await SessionStorage.getChatHash();
+            if (chatId != null) TgService.telegramChannelId = chatId;
+            if (chatHash != null) TgService.telegramAccessHash = chatHash;
+            await TgService.initializeNativeFetcher(stringSession: tgSession);
+          } catch (e) {
+            debugPrint('[AppProvider] Failed to auto-init native TG: $e');
+          }
+        }
+      }); // fire-and-forget
 
       final ratingsData = _storageService.getSetting<String>('ratings') ?? '{}';
       _ratings = Map<String, int>.from(jsonDecode(ratingsData));
@@ -182,17 +200,34 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _initializeWithApiKey(String apiKey) async {
+  Future<void> _initializeWithApiKey(String apiKey, {bool fetchRemote = true}) async {
     _allDebridService = AllDebridService(apiKey: apiKey);
 
-    _user = await _allDebridService!.getUser();
-    _hosts = await _allDebridService!.getHosts();
+    if (fetchRemote) {
+      _user = await _allDebridService!.getUser();
+      _hosts = await _allDebridService!.getHosts();
+    }
+  }
+
+  /// Fetch user + hosts in background without blocking init.
+  Future<void> _fetchRemoteDataInBackground() async {
+    if (_allDebridService == null) return;
+    try {
+      final user = await _allDebridService!.getUser();
+      final hosts = await _allDebridService!.getHosts();
+      _user = user;
+      _hosts = hosts;
+      notifyListeners();
+    } catch (e) {
+      // Non-fatal: app already showed, just missing user info
+    }
   }
 
   Future<void> refreshUser() async {
     if (_allDebridService == null) return;
 
     _isLoading = true;
+    debugPrint('[AppProvider] notifyListeners from refreshUser (start)');
     notifyListeners();
 
     try {
@@ -202,6 +237,7 @@ class AppProvider extends ChangeNotifier {
       _error = e.toString();
     } finally {
       _isLoading = false;
+      debugPrint('[AppProvider] notifyListeners from refreshUser (done)');
       notifyListeners();
     }
   }
@@ -243,6 +279,7 @@ class AppProvider extends ChangeNotifier {
       _ratings[id] = rating;
     }
     await _storageService.saveSetting('ratings', jsonEncode(_ratings));
+    debugPrint('[AppProvider] notifyListeners from setRating');
     notifyListeners();
   }
 }

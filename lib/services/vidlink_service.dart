@@ -24,28 +24,20 @@ class VidLinkService {
   Future<Map<String, dynamic>> getSources(int id,
       {bool isMovie = true, int? season, int? episode}) async {
     try {
-      print(
-          '[VidLink] Getting sources for ID: $id (isMovie: $isMovie, S:$season E:$episode)');
       final key = await _getEncryptionKey(id);
       if (key == null) {
-        print('[VidLink] Failed to get encryption key');
         return {'sources': <VideoSource>[], 'captions': <VideoCaption>[]};
       }
-
-      print('[VidLink] Got Key: $key');
 
       String url;
       if (isMovie) {
         url = '$_baseUrl/movie/$key';
       } else {
         if (season == null || episode == null) {
-          print('[VidLink] Season/Episode missing for TV show');
           return {'sources': <VideoSource>[], 'captions': <VideoCaption>[]};
         }
         url = '$_baseUrl/tv/$key/$season/$episode?multiLang=0';
       }
-
-      print('[VidLink] Calling API: $url');
 
       final response = await _dio.get(url);
 
@@ -55,7 +47,7 @@ class VidLinkService {
           try {
             data = jsonDecode(data);
           } catch (e) {
-            print('[VidLink] JSON decode failed: $e');
+            return {'sources': <VideoSource>[], 'captions': <VideoCaption>[]};
           }
         }
 
@@ -63,9 +55,6 @@ class VidLinkService {
           final stream = data['stream'];
           if (stream != null && stream['playlist'] != null) {
             String playlistUrl = stream['playlist'];
-            print('[VidLink] Found Stream URL: $playlistUrl');
-
-            // Parse captions
             List<VideoCaption> captions = [];
             if (stream['captions'] != null && stream['captions'] is List) {
               captions = (stream['captions'] as List).map((c) {
@@ -74,7 +63,6 @@ class VidLinkService {
                   file: c['url'] ?? '',
                 );
               }).toList();
-              print('[VidLink] Found ${captions.length} captions');
             }
 
             return {
@@ -92,16 +80,12 @@ class VidLinkService {
           }
         }
       }
-      print('[VidLink] No stream found in response or invalid format');
-    } catch (e) {
-      print('VidLink Error: $e');
-    }
+    } catch (e) {}
     return {'sources': <VideoSource>[], 'captions': <VideoCaption>[]};
   }
 
   Future<String?> _getEncryptionKey(int id) async {
     try {
-      print('[VidLink] Getting Key for ID: $id');
       final response = await _dio.get(
         _encUrl,
         queryParameters: {'text': id.toString()},
@@ -109,11 +93,7 @@ class VidLinkService {
       if (response.statusCode == 200 && response.data['status'] == 200) {
         return response.data['result'];
       }
-      print(
-          '[VidLink] Encryption key response invalid: ${response.statusCode} / ${response.data}');
-    } catch (e) {
-      print('VidLink Encryption failed: $e');
-    }
+    } catch (e) {}
     return null;
   }
 }

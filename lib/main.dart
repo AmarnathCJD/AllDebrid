@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:provider/provider.dart';
+import 'package:provider/provider.dart' as provider_pkg;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'providers/providers.dart';
 import 'providers/navigation_provider.dart';
@@ -12,11 +13,8 @@ import 'screens/main_navigation.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize MediaKit for video playback
   MediaKit.ensureInitialized();
 
-  // Set system UI overlay style
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -26,7 +24,6 @@ void main() async {
     ),
   );
 
-  // Lock orientation to portrait
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
@@ -41,9 +38,11 @@ void main() async {
   final downloadService = DownloadService(storageService: storageService);
 
   runApp(
-    AllDebridApp(
-      storageService: storageService,
-      downloadService: downloadService,
+    ProviderScope(
+      child: AllDebridApp(
+        storageService: storageService,
+        downloadService: downloadService,
+      ),
     ),
   );
 }
@@ -60,18 +59,13 @@ class AllDebridApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
+    return provider_pkg.MultiProvider(
       providers: [
-        // App Provider
-        ChangeNotifierProvider(
+        provider_pkg.ChangeNotifierProvider(
           create: (_) => AppProvider(storageService: storageService),
         ),
-
-        // Navigation Provider
-        ChangeNotifierProvider(create: (_) => NavigationProvider()),
-
-        // Magnet Provider
-        ChangeNotifierProxyProvider<AppProvider, MagnetProvider>(
+        provider_pkg.ChangeNotifierProvider(create: (_) => NavigationProvider()),
+        provider_pkg.ChangeNotifierProxyProvider<AppProvider, MagnetProvider>(
           create: (context) => MagnetProvider(
             getService: () => context.read<AppProvider>().allDebridService,
           ),
@@ -79,9 +73,7 @@ class AllDebridApp extends StatelessWidget {
               previous ??
               MagnetProvider(getService: () => appProvider.allDebridService),
         ),
-
-        // Link Provider
-        ChangeNotifierProxyProvider<AppProvider, LinkProvider>(
+        provider_pkg.ChangeNotifierProxyProvider<AppProvider, LinkProvider>(
           create: (context) => LinkProvider(
             getService: () => context.read<AppProvider>().allDebridService,
           ),
@@ -89,32 +81,28 @@ class AllDebridApp extends StatelessWidget {
               previous ??
               LinkProvider(getService: () => appProvider.allDebridService),
         ),
-
-        // Download Provider
-        ChangeNotifierProvider(
+        provider_pkg.ChangeNotifierProvider(
           create: (_) => DownloadProvider(downloadService: downloadService),
         ),
-
-        // Trending Provider
-        ChangeNotifierProvider(
+        provider_pkg.ChangeNotifierProvider(
           create: (_) => TrendingProvider(),
         ),
-
-        // KDrama Provider
-        ChangeNotifierProvider(
+        provider_pkg.ChangeNotifierProvider(
           create: (_) => KDramaProvider(),
         ),
       ],
-      child: Builder(builder: (context) {
-        return MaterialApp(
-          title: 'AllDebrid',
-          debugShowCheckedModeBanner: false,
-          // Now context here can find AppProvider
-          theme: AppTheme.createTheme(context.watch<AppProvider>().primaryColor,
-              isDark: context.watch<AppProvider>().isDarkMode),
-          home: const AppWrapper(),
-        );
-      }),
+      child: provider_pkg.Selector<AppProvider, (Color, bool)>(
+        selector: (_, p) => (p.primaryColor, p.isDarkMode),
+        builder: (context, themeData, _) {
+          return MaterialApp(
+            title: 'AllDebrid',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.createTheme(themeData.$1, isDark: themeData.$2),
+            navigatorObservers: [context.read<AppProvider>().routeObserver],
+            home: const AppWrapper(),
+          );
+        },
+      ),
     );
   }
 }
@@ -132,25 +120,41 @@ class _AppWrapperState extends State<AppWrapper> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => _initializeApp());
+    final appProvider = context.read<AppProvider>();
+    // If user has launched before (has API key in storage), skip splash
+    final hasLaunchedBefore = appProvider.hasApiKey ||
+        (appProvider.getSetting<bool>('has_launched') ?? false);
+    if (hasLaunchedBefore) {
+      _isInitializing = false;
+      Future.microtask(() => _initializeApp(showSplash: false));
+    } else {
+      Future.microtask(() => _initializeApp(showSplash: true));
+    }
   }
 
-  Future<void> _initializeApp() async {
+  Future<void> _initializeApp({required bool showSplash}) async {
+    if (!mounted) return;
+    final appProvider = context.read<AppProvider>();
+    final trendingProvider = context.read<TrendingProvider>();
+    final kdramaProvider = context.read<KDramaProvider>();
+    final magnetProvider = context.read<MagnetProvider>();
+
+    await appProvider.initialize();
+    await appProvider.saveSetting('has_launched', true);
+
     if (mounted) {
-      await context.read<AppProvider>().initialize();
+      trendingProvider.loadTrendingData();
+      kdramaProvider.loadTopDramas();
+      kdramaProvider.loadTopAiringDramas();
+      kdramaProvider.loadLatestDramas();
+      magnetProvider.fetchMagnets();
     }
 
-    if (mounted) {
-      context.read<TrendingProvider>().loadTrendingData();
-      context.read<KDramaProvider>().loadTopDramas();
-      context.read<KDramaProvider>().loadTopAiringDramas();
-      context.read<KDramaProvider>().loadLatestDramas();
-      context.read<MagnetProvider>().fetchMagnets();
+    if (showSplash) {
+      await Future.delayed(const Duration(milliseconds: 400));
     }
 
-    await Future.delayed(const Duration(milliseconds: 400));
-
-    if (mounted) {
+    if (mounted && showSplash) {
       setState(() => _isInitializing = false);
     }
   }
@@ -161,10 +165,6 @@ class _AppWrapperState extends State<AppWrapper> {
       return const SplashScreen();
     }
 
-    return Consumer<AppProvider>(
-      builder: (context, appProvider, _) {
-        return const MainNavigation();
-      },
-    );
+    return const MainNavigation();
   }
 }

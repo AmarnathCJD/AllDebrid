@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep \":$\")",
+      "Bash(flutter analyze:*)",
+      "Bash(grep -n \"class RiveStreamMediaDetails\" lib/services/*.dart lib/models/*.dart)",
+      "Bash(find ~/.pub-cache -path *uni_links* -name build.gradle)",
+      "Bash(flutter clean:*)"
+    ]
+  }
+}

@@ -78,10 +78,6 @@ class TrendingProvider extends ChangeNotifier {
           .map(_mapToTrendingItem)
           .toList();
 
-      _trendingMovies.shuffle();
-      _trendingTVShows.shuffle();
-      _netflixShows.shuffle();
-      _amazonPrimeShows.shuffle();
       notifyListeners();
     } else {
       _isLoading = true;
@@ -122,10 +118,6 @@ class TrendingProvider extends ChangeNotifier {
           .map(_mapToTrendingItem)
           .toList();
 
-      _trendingMovies.shuffle();
-      _trendingTVShows.shuffle();
-      _netflixShows.shuffle();
-      _amazonPrimeShows.shuffle();
       _hasError = false;
     } catch (e) {
       print('[TRENDING PROVIDER] Error loading trending data: $e');

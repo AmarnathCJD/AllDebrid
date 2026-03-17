@@ -489,8 +489,9 @@ class _DiscoverScreenState extends State<DiscoverScreen>
                 setState(() {});
 
                 // Only fetch IMDb suggestions, don't auto-search
-                if (_suggestionDebounce?.isActive ?? false)
+                if (_suggestionDebounce?.isActive ?? false) {
                   _suggestionDebounce!.cancel();
+                }
                 _suggestionDebounce =
                     Timer(const Duration(milliseconds: 300), () {
                   if (value.length >= 2) {
@@ -839,7 +840,8 @@ class _TorrentCard extends StatelessWidget {
                           Text(
                             '$leechers',
                             style: TextStyle(
-                              color: const Color(0xFFEF5350).withValues(alpha: 0.8),
+                              color: const Color(0xFFEF5350)
+                                  .withValues(alpha: 0.8),
                               fontWeight: FontWeight.w700,
                               fontSize: 10,
                             ),

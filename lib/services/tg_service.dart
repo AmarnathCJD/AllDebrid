@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'tg_native_service.dart';
 
 class TgCheckResult {
   final bool success;
@@ -115,6 +116,10 @@ class TgMovieCheckResult {
 
 class TgService {
   static const String baseUrl = 'https://cdok.gogram.fun';
+  static int telegramChannelId = 0;
+  static int telegramAccessHash = 0;
+  static int? nativePort;
+
   final Dio _dio = Dio(BaseOptions(
     validateStatus: (status) => true,
     connectTimeout: const Duration(seconds: 15),
@@ -124,6 +129,66 @@ class TgService {
       'Accept': 'application/json',
     },
   ));
+
+  static Future<String> initializeNativeFetcher({
+    required String stringSession,
+  }) async {
+    try {
+      print('[TG] Initializing native fetcher...');
+      final username =
+          await TGNativeService.initialize(stringSession: stringSession);
+      nativePort = await TGNativeService().startStreamingServer();
+      print(
+          '[TG] Native fetcher initialized. User: $username, Local Port: $nativePort');
+
+      // Auto-resolve index channel if not set
+      if (telegramChannelId == 0) {
+        try {
+          print('[TG] Auto-resolving default index channel...');
+          final resolved =
+              await TGNativeService().resolveUsername('indexmzgroup');
+          telegramChannelId = resolved['channel_id'];
+          telegramAccessHash = resolved['access_hash'];
+          print('[TG] Resolved index channel: $telegramChannelId');
+        } catch (e) {
+          print('[TG] Auto-resolve failed: $e');
+        }
+      }
+      return username;
+    } catch (e) {
+      print('[TG] Native fetcher init failed: $e');
+      rethrow;
+    }
+  }
+
+  /// Get the stream URL, preferring native if available
+  String getStreamUrl(String remoteUrl, String hash) {
+    if (nativePort != null && nativePort! > 0) {
+      try {
+        final msgId = TGNativeService().decodeHash(hash);
+        final localUrl =
+            'http://127.0.0.1:$nativePort/stream?msg_id=$msgId&channel_id=$telegramChannelId&access_hash=$telegramAccessHash';
+        print('[TG] Using native pipeline URL: $localUrl');
+        return localUrl;
+      } catch (e) {
+        print('[TG] Error generating native URL, falling back: $e');
+      }
+    }
+
+    final fallbackUrl = '${TgService.baseUrl}$remoteUrl';
+    print(
+        '[TG] Falling back to remote CDN URL (nativePort=$nativePort): $fallbackUrl');
+    return fallbackUrl;
+  }
+
+  static Future<String> createSessionFromBotToken(String botToken) async {
+    try {
+      final service = TGNativeService();
+      return await service.createSessionFromBotToken(botToken);
+    } catch (e) {
+      rethrow;
+    }
+  }
 
   Future<TgCheckResult?> check(String imdbId) async {
     try {
@@ -341,5 +406,72 @@ class TgService {
       print('[TG] getMovieStreamByMessageId error: $e');
     }
     return null;
+  }
+
+  /// Download file directly from Telegram using native library
+  /// msgId can be an int or hex hash string
+  Future<List<int>> downloadFileChunk(
+    dynamic msgId, {
+    required int start,
+    required int end,
+  }) async {
+    final nativeService = TGNativeService();
+    if (!nativeService.isInitialized) {
+      throw Exception('Native Telegram fetcher not initialized');
+    }
+
+    final actualMsgId =
+        msgId is String ? nativeService.decodeHash(msgId) : (msgId as int);
+
+    return await nativeService.downloadFileChunk(
+      channelId: telegramChannelId,
+      accessHash: telegramAccessHash,
+      msgId: actualMsgId,
+      start: start,
+      end: end,
+    );
+  }
+
+  /// Fetch file metadata from Telegram
+  Future<FileMetadata> fetchFileMetadata(dynamic msgId) async {
+    final nativeService = TGNativeService();
+    if (!nativeService.isInitialized) {
+      throw Exception('Native Telegram fetcher not initialized');
+    }
+
+    final actualMsgId =
+        msgId is String ? nativeService.decodeHash(msgId) : (msgId as int);
+
+    return await nativeService.fetchFileMetadata(
+      channelId: telegramChannelId,
+      accessHash: telegramAccessHash,
+      msgId: actualMsgId,
+    );
+  }
+
+  /// Download complete file to disk
+  Future<String> downloadFileToDisk(
+    dynamic msgId,
+    String filePath,
+  ) async {
+    final nativeService = TGNativeService();
+    if (!nativeService.isInitialized) {
+      throw Exception('Native Telegram fetcher not initialized');
+    }
+
+    final actualMsgId =
+        msgId is String ? nativeService.decodeHash(msgId) : (msgId as int);
+
+    return await nativeService.downloadFile(
+      channelId: telegramChannelId,
+      accessHash: telegramAccessHash,
+      msgId: actualMsgId,
+      filePath: filePath,
+    );
+  }
+
+  /// Encode message ID to compact hash
+  String encodeHash(int msgId) {
+    return TGNativeService().encodeHash(msgId);
   }
 }

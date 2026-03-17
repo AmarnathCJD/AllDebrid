@@ -20,9 +20,16 @@ class RiveStreamService {
           'language': 'en-US',
           ...?queryParameters,
         },
+        options: Options(
+          validateStatus: (status) => status != null,
+        ),
       );
-      print('Proxy Response: ${proxyResponse.data}');
-      if (proxyResponse.statusCode == 200) return proxyResponse;
+
+      if (proxyResponse.statusCode == 200 ||
+          proxyResponse.statusCode == 404 ||
+          proxyResponse.statusCode == 500) {
+        return proxyResponse;
+      }
     } catch (_) {}
 
     return await _dio.get(
@@ -32,6 +39,9 @@ class RiveStreamService {
         'language': 'en-US',
         ...?queryParameters,
       },
+      options: Options(
+        validateStatus: (status) => status != null && status < 500,
+      ),
     );
   }
 
@@ -105,8 +115,9 @@ class RiveStreamService {
         'include_adult': false,
       });
 
-      if (searchResponse.statusCode != 200 || searchResponse.data == null)
+      if (searchResponse.statusCode != 200 || searchResponse.data == null) {
         return [];
+      }
       final results = searchResponse.data['results'] as List?;
       if (results == null || results.isEmpty) return [];
 
@@ -117,7 +128,9 @@ class RiveStreamService {
       final filmographyResponse =
           await _get('/person/$personId/combined_credits');
       if (filmographyResponse.statusCode != 200 ||
-          filmographyResponse.data == null) return [];
+          filmographyResponse.data == null) {
+        return [];
+      }
 
       final castList = filmographyResponse.data['cast'] as List?;
       if (castList == null || castList.isEmpty) return [];
@@ -178,10 +191,12 @@ class RiveStreamService {
       if (response.statusCode == 200 && response.data != null) {
         final movieResults = response.data['movie_results'] as List?;
         final tvResults = response.data['tv_results'] as List?;
-        if (movieResults != null && movieResults.isNotEmpty)
+        if (movieResults != null && movieResults.isNotEmpty) {
           return movieResults[0]['id'];
-        if (tvResults != null && tvResults.isNotEmpty)
+        }
+        if (tvResults != null && tvResults.isNotEmpty) {
           return tvResults[0]['id'];
+        }
       }
     } catch (e) {
       print('TMDB Find Error: $e');
@@ -205,10 +220,10 @@ class RiveStreamService {
           for (final result in results) {
             final resultTitle =
                 (isMovie ? result['title'] : result['name']) as String?;
-            if (resultTitle?.toLowerCase() == title.toLowerCase())
+            if (resultTitle?.toLowerCase() == title.toLowerCase()) {
               return result['id'];
+            }
           }
-          return results[0]['id'];
         }
       }
     } catch (e) {
@@ -341,6 +356,35 @@ class RiveStreamService {
     return getCachedCastAndCrew(id, isMovie: isMovie);
   }
 
+  Future<List<CastMember>> getCast(int id, {bool isMovie = true}) async {
+    try {
+      final result = await getCastAndCrew(id, isMovie: isMovie);
+      return (result['cast'] as List<CastMember>?) ?? [];
+    } catch (_) {}
+    return [];
+  }
+
+  Future<List<RiveStreamMedia>> getPersonKnownForTitles(int personId) async {
+    try {
+      final response = await _get('/person/$personId/combined_credits');
+      if (response.statusCode == 200 && response.data != null) {
+        final List<dynamic> cast = (response.data['cast'] as List?) ?? [];
+        final sorted = cast
+            .where((c) =>
+                c['poster_path'] != null &&
+                (c['title'] ?? c['name'] ?? '').toString().isNotEmpty)
+            .toList()
+          ..sort((a, b) => ((b['popularity'] ?? 0) as num)
+              .compareTo((a['popularity'] ?? 0) as num));
+        return sorted
+            .take(4)
+            .map((c) => RiveStreamMedia.fromJson(c as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
   Future<Map<String, dynamic>> getCachedCastAndCrew(int id,
       {bool isMovie = true}) async {
     try {
@@ -424,11 +468,94 @@ class RiveStreamService {
     return [];
   }
 
+  Future<GenreInterestResult?> getGenreInterest(String interestId) async {
+    try {
+      final response = await _dio.get(
+        'https://imdb.gogram.fun/imdb/interest/$interestId',
+        options: Options(validateStatus: (s) => s != null),
+      );
+      if (response.statusCode == 200 && response.data != null) {
+        return GenreInterestResult.fromJson(
+            response.data as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
+
   void _saveToCache(String key, String value) {
     SharedPreferences.getInstance()
         .then((prefs) => prefs.setString(key, value))
         .catchError((_) => true);
   }
+}
+
+class GenreInterestItem {
+  final String imdbId;
+  final String title;
+  final int year;
+  final double rating;
+  final String mediaType;
+  final String? poster;
+  final String? plot;
+  final String? certificate;
+
+  GenreInterestItem({
+    required this.imdbId,
+    required this.title,
+    required this.year,
+    required this.rating,
+    required this.mediaType,
+    this.poster,
+    this.plot,
+    this.certificate,
+  });
+
+  factory GenreInterestItem.fromJson(Map<String, dynamic> json) =>
+      GenreInterestItem(
+        imdbId: json['imdb_id'] ?? '',
+        title: json['title'] ?? '',
+        year: json['year'] ?? 0,
+        rating: (json['rating'] ?? 0).toDouble(),
+        mediaType: json['media_type'] ?? 'movie',
+        poster: json['poster'],
+        plot: json['plot'],
+        certificate: json['certificate'],
+      );
+}
+
+class GenreInterestResult {
+  final String interestId;
+  final String name;
+  final String? description;
+  final int totalMovies;
+  final int totalTv;
+  final List<GenreInterestItem> popularMovies;
+  final List<GenreInterestItem> popularTv;
+
+  GenreInterestResult({
+    required this.interestId,
+    required this.name,
+    this.description,
+    required this.totalMovies,
+    required this.totalTv,
+    required this.popularMovies,
+    required this.popularTv,
+  });
+
+  factory GenreInterestResult.fromJson(Map<String, dynamic> json) =>
+      GenreInterestResult(
+        interestId: json['interest_id'] ?? '',
+        name: json['name'] ?? '',
+        description: json['description'],
+        totalMovies: json['total_movies'] ?? 0,
+        totalTv: json['total_tv'] ?? 0,
+        popularMovies: (json['popular_movies'] as List? ?? [])
+            .map((e) => GenreInterestItem.fromJson(e))
+            .toList(),
+        popularTv: (json['popular_tv'] as List? ?? [])
+            .map((e) => GenreInterestItem.fromJson(e))
+            .toList(),
+      );
 }
 
 class RiveStreamMedia {
@@ -637,6 +764,32 @@ class RiveStreamMediaDetails {
   String get fullBackdropUrl => backdropPath != null
       ? 'https://image.tmdb.org/t/p/w1280$backdropPath'
       : '';
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'name': name,
+        'overview': overview,
+        'poster_path': posterPath,
+        'backdrop_path': backdropPath,
+        'vote_average': voteAverage,
+        'vote_count': voteCount,
+        'release_date': releaseDate,
+        'first_air_date': firstAirDate,
+        'runtime': runtime,
+        'genres': genres,
+        'status': status,
+        'tagline': tagline,
+        'budget': budget,
+        'revenue': revenue,
+        'popularity': popularity,
+        'production_companies': productionCompanies,
+        'production_countries': productionCountries,
+        'spoken_languages': spokenLanguages,
+        'number_of_seasons': numberOfSeasons,
+        'number_of_episodes': numberOfEpisodes,
+        'imdb_id': imdbId,
+      };
 }
 
 class RiveStreamEpisode {
@@ -661,22 +814,57 @@ class RiveStreamEpisode {
   });
 
   factory RiveStreamEpisode.fromJson(Map<String, dynamic> json) {
+    var still = json['still_path'] ??
+        json['still_image'] ??
+        json['still'] ??
+        json['backdrop_path'] ??
+        json['thumbnail_path'] ??
+        json['thumbnail'] ??
+        json['image'] ??
+        json['pic'] ??
+        json['img'] ??
+        json['poster_path'];
+
+    // Handle case where still might be a list or map from some weird source
+    if (still is List && still.isNotEmpty) still = still[0];
+    if (still is Map && still.containsKey('url')) still = still['url'];
+    if (still is Map && still.containsKey('path')) still = still['path'];
+
     return RiveStreamEpisode(
       id: json['id'] ?? 0,
       name: json['name'],
       overview: json['overview'],
-      stillPath: json['still_path'] ?? json['still'],
-      episodeNumber: json['episode_number'] ?? 0,
-      seasonNumber: json['season_number'] ?? 0,
+      stillPath: still is String ? still : null,
+      episodeNumber:
+          json['episode_number'] ?? json['number'] ?? json['episode'] ?? 0,
+      seasonNumber: json['season_number'] ?? json['season'] ?? 1,
       voteAverage: (json['vote_average'] ?? json['rating'] ?? 0.0).toDouble(),
       airDate: json['air_date'],
     );
   }
 
-  String get fullStillUrl =>
-      stillPath != null ? 'https://image.tmdb.org/t/p/w400$stillPath' : '';
-  String get ogStillUrl =>
-      stillPath != null ? 'https://image.tmdb.org/t/p/original$stillPath' : '';
+  String get _formattedPath {
+    if (stillPath == null || stillPath!.isEmpty || stillPath == 'null') {
+      return '';
+    }
+    if (stillPath!.startsWith('http')) return stillPath!;
+    final path = stillPath!.startsWith('/') ? stillPath! : '/$stillPath';
+    return path;
+  }
+
+  String get fullStillUrl {
+    final path = _formattedPath;
+    if (path.isEmpty) return '';
+    if (path.startsWith('http')) return path;
+    return 'https://image.tmdb.org/t/p/w400$path';
+  }
+
+  String get ogStillUrl {
+    final path = _formattedPath;
+    if (path.isEmpty) return '';
+    if (path.startsWith('http')) return path;
+    return 'https://image.tmdb.org/t/p/original$path';
+  }
 }
 
 class CastMember {
