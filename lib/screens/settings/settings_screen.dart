@@ -64,6 +64,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 7),
                     _buildTelegramSection(provider),
                     const SizedBox(height: 18),
+                    _buildSectionLabel('AI & API'),
+                    const SizedBox(height: 7),
+                    _buildAISection(provider),
+                    const SizedBox(height: 18),
                     _buildSectionLabel('ABOUT'),
                     const SizedBox(height: 7),
                     _buildAboutSection(provider),
@@ -304,6 +308,238 @@ class _SettingsScreenState extends State<SettingsScreen> {
           content: const Text('Telegram Bridge Disconnected'),
           backgroundColor: AppTheme.elevatedColor,
         ));
+      }
+    }
+  }
+
+  Widget _buildAISection(AppProvider provider) {
+    final apiKey = provider.getSetting<String>('nvidia_api_key') ?? '';
+    final isConfigured = apiKey.isNotEmpty;
+
+    return _SettingsCard(
+      children: [
+        _SettingsTile(
+          icon: Icons.auto_awesome_rounded,
+          title: 'NVIDIA API Key',
+          subtitle: isConfigured
+              ? 'Configured for AI recommendations'
+              : 'Configure to enable AI features',
+          badge: isConfigured ? 'SET' : 'NOT SET',
+          badgeColor: isConfigured ? AppTheme.successColor : AppTheme.textMuted,
+          onTap: () => _showAPIKeyDialog(context, provider),
+          trailing: isConfigured
+              ? IconButton(
+                  icon: Icon(Icons.clear_rounded,
+                      size: 20,
+                      color: AppTheme.errorColor.withValues(alpha: 0.7)),
+                  onPressed: () => _clearAPIKey(provider),
+                  tooltip: 'Remove',
+                )
+              : null,
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showAPIKeyDialog(
+      BuildContext context, AppProvider provider) async {
+    final controller = TextEditingController(
+      text: provider.getSetting<String>('nvidia_api_key') ?? '',
+    );
+    bool isSaving = false;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: AppTheme.elevatedColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(
+              color: AppTheme.borderColor.withValues(alpha: 0.3),
+              width: 1,
+            ),
+          ),
+          title: Text(
+            'NVIDIA API Key',
+            style: GoogleFonts.outfit(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Get your API key from:',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    color: AppTheme.backgroundColor,
+                    border: Border.all(
+                      color: AppTheme.borderColor.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Text(
+                    'https://build.nvidia.com/nvidia/nemotron-70b-instruct',
+                    style: TextStyle(
+                      color: AppTheme.primaryColor,
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  obscureText: true,
+                  maxLines: 1,
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 12,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Paste your API key here',
+                    hintStyle: TextStyle(
+                      color: Colors.white30,
+                      fontSize: 11,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                        color: AppTheme.borderColor.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                        color: AppTheme.borderColor.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                        color: AppTheme.primaryColor.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    contentPadding: const EdgeInsets.all(12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving ? null : () => Navigator.pop(context),
+              style: TextButton.styleFrom(
+                foregroundColor: AppTheme.textMuted,
+              ),
+              child: Text(
+                'CANCEL',
+                style: GoogleFonts.outfit(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      if (controller.text.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('Please enter an API key'),
+                            backgroundColor: AppTheme.errorColor,
+                          ),
+                        );
+                        return;
+                      }
+
+                      setDialogState(() => isSaving = true);
+
+                      try {
+                        await provider.saveSetting(
+                          'nvidia_api_key',
+                          controller.text.trim(),
+                        );
+
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content:
+                                  const Text('API Key saved successfully!'),
+                              backgroundColor: AppTheme.successColor,
+                            ),
+                          );
+                          setState(() {});
+                        }
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Error: $e'),
+                            backgroundColor: AppTheme.errorColor,
+                          ),
+                        );
+                      }
+
+                      setDialogState(() => isSaving = false);
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor,
+                foregroundColor: Colors.black87,
+              ),
+              child: isSaving
+                  ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Colors.black87.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    )
+                  : Text(
+                      'SAVE',
+                      style: GoogleFonts.outfit(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _clearAPIKey(AppProvider provider) async {
+    final confirm = await _showConfirmDialog(
+      'Remove API Key?',
+      'This will disable AI recommendations.',
+    );
+    if (confirm) {
+      await provider.saveSetting('nvidia_api_key', '');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('API Key removed'),
+            backgroundColor: AppTheme.elevatedColor,
+          ),
+        );
+        setState(() {});
       }
     }
   }

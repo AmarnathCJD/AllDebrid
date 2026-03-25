@@ -147,7 +147,6 @@ class VidEasyService {
       }
 
       final response = await _dio.get(_apiUrl, queryParameters: queryParams);
-
       if (response.statusCode == 200 && response.data != null) {
         final encryptedText = response.data.toString();
         final decryptedData = await _decrypt(encryptedText, tmdbId);

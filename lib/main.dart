@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:provider/provider.dart' as provider_pkg;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:app_links/app_links.dart';
 
 import 'providers/providers.dart';
 import 'providers/navigation_provider.dart';
@@ -10,6 +11,7 @@ import 'services/services.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
 import 'screens/main_navigation.dart';
+import 'screens/home/media_info_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -64,7 +66,8 @@ class AllDebridApp extends StatelessWidget {
         provider_pkg.ChangeNotifierProvider(
           create: (_) => AppProvider(storageService: storageService),
         ),
-        provider_pkg.ChangeNotifierProvider(create: (_) => NavigationProvider()),
+        provider_pkg.ChangeNotifierProvider(
+            create: (_) => NavigationProvider()),
         provider_pkg.ChangeNotifierProxyProvider<AppProvider, MagnetProvider>(
           create: (context) => MagnetProvider(
             getService: () => context.read<AppProvider>().allDebridService,
@@ -116,6 +119,7 @@ class AppWrapper extends StatefulWidget {
 
 class _AppWrapperState extends State<AppWrapper> {
   bool _isInitializing = true;
+  final _appLinks = AppLinks();
 
   @override
   void initState() {
@@ -130,6 +134,55 @@ class _AppWrapperState extends State<AppWrapper> {
     } else {
       Future.microtask(() => _initializeApp(showSplash: true));
     }
+    _initDeepLinks();
+  }
+
+  void _initDeepLinks() {
+    // Handle link when app is already running
+    _appLinks.uriLinkStream.listen((uri) {
+      _handleDeepLink(uri);
+    });
+    // Handle initial link (app opened cold via link)
+    _appLinks.getInitialLink().then((uri) {
+      if (uri != null) _handleDeepLink(uri);
+    });
+  }
+
+  void _handleDeepLink(Uri uri) {
+    // Expected: https://p.x32am.com/{tmdbId}
+    if (uri.host != 'p.x32am.com') return;
+    final segments = uri.pathSegments;
+    if (segments.isEmpty) return;
+    final tmdbId = segments.first;
+    if (tmdbId.isEmpty) return;
+
+    // Wait until app is initialized before navigating
+    Future.doWhile(() async {
+      if (!_isInitializing && mounted) return false;
+      await Future.delayed(const Duration(milliseconds: 100));
+      return _isInitializing;
+    }).then((_) {
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 500),
+          reverseTransitionDuration: const Duration(milliseconds: 350),
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              MediaInfoScreen(
+            item: ImdbSearchResult(
+              id: tmdbId,
+              title: '',
+              year: '',
+              posterUrl: '',
+            ),
+          ),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+        ),
+      );
+    });
   }
 
   Future<void> _initializeApp({required bool showSplash}) async {

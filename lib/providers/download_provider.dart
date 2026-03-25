@@ -54,12 +54,14 @@ class DownloadProvider extends ChangeNotifier {
     required String url,
     required String filename,
     int? totalSize,
+    Map<String, String>? headers,
   }) async {
     try {
       final download = await _downloadService.startDownload(
         url: url,
         filename: filename,
         totalSize: totalSize,
+        headers: headers,
       );
       return download;
     } catch (e) {

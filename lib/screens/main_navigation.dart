@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/navigation_provider.dart';
-import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 
 import 'home/home_screen.dart';
 import 'browse/browse_page.dart';
-import 'magnets/magnets_screen.dart';
 import 'downloads/downloads_screen.dart';
 import 'watchlist/watchlist_screen.dart';
 import 'settings/settings_screen.dart';
@@ -20,37 +18,29 @@ class MainNavigation extends StatefulWidget {
 }
 
 class _MainNavigationState extends State<MainNavigation> {
-  late List<Widget> _screens;
-  bool _initialized = false;
+  final List<Widget> _screens = [
+    HomeScreen(key: HomeScreen.homeKey),
+    const BrowsePage(),
+    const WatchlistScreen(),
+    const DownloadsScreen(),
+    const SettingsScreen(),
+  ];
 
-  void _initScreens(bool hasKey) {
-    _screens = hasKey
-        ? [
-            HomeScreen(key: HomeScreen.homeKey),
-            const BrowsePage(),
-            const WatchlistScreen(),
-            const MagnetsScreen(),
-            const DownloadsScreen(),
-            const SettingsScreen(),
-          ]
-        : [
-            HomeScreen(key: HomeScreen.homeKey),
-            const BrowsePage(),
-            const WatchlistScreen(),
-            const SettingsScreen(),
-          ];
-    _initialized = true;
+  @override
+  void initState() {
+    super.initState();
+    // Ensure navigation index is valid after screen changes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final navigationProvider = context.read<NavigationProvider>();
+      if (navigationProvider.currentIndex >= _screens.length) {
+        navigationProvider.setIndex(0);
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final navigationProvider = Provider.of<NavigationProvider>(context);
-    final appProvider = Provider.of<AppProvider>(context);
-    final hasKey = appProvider.hasApiKey;
-
-    if (!_initialized) {
-      _initScreens(hasKey);
-    }
 
     int currentIndex = navigationProvider.currentIndex;
     if (currentIndex >= _screens.length) {
@@ -69,21 +59,13 @@ class _MainNavigationState extends State<MainNavigation> {
       }
     }
 
-    final navItems = hasKey
-        ? [
-            (Icons.home_outlined, Icons.home_rounded, 'Home'),
-            (Icons.explore_outlined, Icons.explore_rounded, 'Browse'),
-            (Icons.bookmark_outlined, Icons.bookmark_rounded, 'Watchlist'),
-            (Icons.link_outlined, Icons.link_rounded, 'Magnets'),
-            (Icons.download_outlined, Icons.download_rounded, 'Downloads'),
-            (Icons.tune_outlined, Icons.tune_rounded, 'Settings'),
-          ]
-        : [
-            (Icons.home_outlined, Icons.home_rounded, 'Home'),
-            (Icons.explore_outlined, Icons.explore_rounded, 'Browse'),
-            (Icons.bookmark_outlined, Icons.bookmark_rounded, 'Watchlist'),
-            (Icons.tune_outlined, Icons.tune_rounded, 'Settings'),
-          ];
+    const navItems = [
+      (Icons.home_outlined, Icons.home_rounded, 'Home'),
+      (Icons.explore_outlined, Icons.explore_rounded, 'Browse'),
+      (Icons.bookmark_outlined, Icons.bookmark_rounded, 'Watchlist'),
+      (Icons.download_outlined, Icons.download_rounded, 'Downloads'),
+      (Icons.tune_outlined, Icons.tune_rounded, 'Settings'),
+    ];
 
     return Scaffold(
       backgroundColor: Colors.transparent,

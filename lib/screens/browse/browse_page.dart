@@ -4,6 +4,7 @@ import '../../theme/app_theme.dart';
 import '../../services/rivestream_service.dart';
 import '../../services/imdb_service.dart';
 import '../home/media_info_screen.dart';
+import '../ai_recommendation_page.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shimmer/shimmer.dart';
@@ -535,66 +536,72 @@ class _BrowsePageState extends State<BrowsePage> {
       bottom: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'EXPLORE',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textMuted,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                  const Text(
-                    'DISCOVER',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -1,
-                      height: 1,
-                      color: AppTheme.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            PopupMenuButton<String>(
-              icon: Icon(Icons.more_vert_rounded,
-                  color: AppTheme.textMuted, size: 22),
-              color: AppTheme.elevatedColor,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  side: BorderSide(
-                      color: AppTheme.borderColor.withValues(alpha: 0.3),
-                      width: 1)),
-              onSelected: (value) {
-                if (value == 'refresh') {
-                  _handleRefresh();
-                }
-              },
-              itemBuilder: (BuildContext context) => [
-                PopupMenuItem(
-                  value: 'refresh',
-                  child: Row(
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.refresh,
-                          color: AppTheme.textPrimary, size: 18),
-                      const SizedBox(width: 12),
                       Text(
-                        'Refresh All',
-                        style: TextStyle(color: AppTheme.textPrimary),
+                        'EXPLORE',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.textMuted,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                      const Text(
+                        'DISCOVER',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -1,
+                          height: 1,
+                          color: AppTheme.textPrimary,
+                        ),
                       ),
                     ],
                   ),
                 ),
+                PopupMenuButton<String>(
+                  icon: Icon(Icons.more_vert_rounded,
+                      color: AppTheme.textMuted, size: 22),
+                  color: AppTheme.elevatedColor,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      side: BorderSide(
+                          color: AppTheme.borderColor.withValues(alpha: 0.3),
+                          width: 1)),
+                  onSelected: (value) {
+                    if (value == 'refresh') {
+                      _handleRefresh();
+                    }
+                  },
+                  itemBuilder: (BuildContext context) => [
+                    PopupMenuItem(
+                      value: 'refresh',
+                      child: Row(
+                        children: [
+                          Icon(Icons.refresh,
+                              color: AppTheme.textPrimary, size: 18),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Refresh All',
+                            style: TextStyle(color: AppTheme.textPrimary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
@@ -622,54 +629,91 @@ class _BrowsePageState extends State<BrowsePage> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                'FEATURED',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textMuted,
-                  letterSpacing: 1.2,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'FEATURED',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.textMuted,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Creative Mix',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Creative Mix',
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
+              // AI Button aligned with title
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.mediumImpact();
+                  Navigator.push(
+                    context,
+                    PageRouteBuilder(
+                      transitionDuration: const Duration(milliseconds: 500),
+                      pageBuilder: (_, animation, __) =>
+                          const AIRecommendationPage(),
+                      transitionsBuilder: (_, animation, __, child) =>
+                          FadeTransition(opacity: animation, child: child),
+                    ),
+                  );
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppTheme.primaryColor.withValues(alpha: 0.15),
+                  ),
+                  padding: const EdgeInsets.all(12),
+                  child: Icon(
+                    Icons.auto_awesome_rounded,
+                    color: AppTheme.primaryColor,
+                    size: 24,
+                  ),
                 ),
               ),
             ],
           ),
         ),
+        // Creative mix items in horizontal scroll (same as regular sections)
         SizedBox(
-          height: 280,
-          child: GridView.builder(
+          height: 240,
+          child: ListView.builder(
             scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              childAspectRatio: 0.68,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-            ),
             itemCount: _featuredMixItems.length,
             itemBuilder: (context, index) {
               final item = _featuredMixItems[index];
-              return GestureDetector(
-                onTap: () => _handleItemTap(item),
-                onDoubleTap: () => _toggleWatchlist(item),
-                child: _buildDiscoveryCard(item),
+              return Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: SizedBox(
+                  width: 120,
+                  child: GestureDetector(
+                    onTap: () => _handleItemTap(item),
+                    onDoubleTap: () => _toggleWatchlist(item),
+                    child: _buildDiscoveryCard(item),
+                  ),
+                ),
               );
             },
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
       ],
     );
   }

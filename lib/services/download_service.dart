@@ -62,6 +62,7 @@ class DownloadService {
     required String filename,
     int? totalSize,
     String? customDir,
+    Map<String, String>? headers,
   }) async {
     await Permission.notification.request();
 
@@ -76,6 +77,7 @@ class DownloadService {
       totalSize: totalSize ?? 0,
       status: DownloadStatus.pending,
       createdAt: DateTime.now(),
+      headers: headers,
     );
 
     _downloads.add(download);
@@ -88,80 +90,77 @@ class DownloadService {
     return download;
   }
 
+  static const int _parallelChunks = 8;
+  static const int _minSizeForParallel = 4 * 1024 * 1024; // 4 MB
+  static const int _hlsConcurrency = 16; // parallel TS segment downloads
+
+  // Each chunk gets its own Dio so they use separate TCP connections
+  static Dio _makeDio(Map<String, String>? extraHeaders) => Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 60),
+        headers: {
+          'User-Agent': 'AllDebrid/1.0',
+          ...?extraHeaders,
+        },
+      ));
+
   Future<void> _downloadFile(Download download) async {
     download.status = DownloadStatus.downloading;
     _notifyListeners();
 
-    final cancelToken = CancelToken();
-    _cancelTokens[download.id] = cancelToken;
+    final masterCancelToken = CancelToken();
+    _cancelTokens[download.id] = masterCancelToken;
 
     final notificationId = download.hashCode % 100000;
     _notificationToDownloadId[notificationId] = download.id;
 
-    DateTime lastUpdate = DateTime.now();
-    int lastBytes = 0;
+    await _showDownloadNotification(
+      notificationId, download.filename, 0, download.totalSize, 0,
+    );
 
     try {
-      // Show initial notification
-      await _showDownloadNotification(
-        notificationId,
-        download.filename,
-        0,
-        download.totalSize,
-        0,
-      );
+      final url = download.url.trim();
 
-      await _dio.download(
-        download.url,
-        download.savePath,
-        cancelToken: cancelToken,
-        options: Options(
-          headers: {'User-Agent': 'AllDebrid/1.0'},
-        ),
-        onReceiveProgress: (received, total) async {
-          download.downloadedSize = received;
-          if (total > 0 && download.totalSize == 0) {
-            download.totalSize = total;
-          }
+      // HLS / M3U8
+      if (_isHls(url)) {
+        final tsSavePath = download.savePath.endsWith('.ts')
+            ? download.savePath
+            : '${download.savePath.replaceAll(RegExp(r'\.\w+$'), '')}.ts';
+        await _downloadHls(download, url, tsSavePath, masterCancelToken, notificationId);
+        download.savePath = tsSavePath;
+      } else {
+        // Direct file: probe for size + range support
+        int fileSize = download.totalSize;
+        bool supportsRange = false;
 
-          final now = DateTime.now();
-          final elapsed = now.difference(lastUpdate).inMilliseconds;
+        try {
+          final probe = _makeDio(null);
+          final head = await probe.head(
+            url,
+            options: Options(validateStatus: (s) => s != null && s < 400),
+          );
+          final cl = head.headers.value('content-length');
+          if (cl != null) fileSize = int.tryParse(cl) ?? fileSize;
+          final ar = head.headers.value('accept-ranges');
+          supportsRange = ar != null && ar != 'none';
+        } catch (_) {}
 
-          if (elapsed >= 500) {
-            final bytesDiff = received - lastBytes;
-            download.speed =
-                (elapsed > 0) ? ((bytesDiff * 1000) ~/ elapsed) : 0;
-            lastUpdate = now;
-            lastBytes = received;
+        if (fileSize > 0) download.totalSize = fileSize;
 
-            // Update notification
-            final progress =
-                (total > 0) ? ((received * 100) / total).toInt() : 0;
-            await _showDownloadNotification(
-              notificationId,
-              download.filename,
-              received,
-              total,
-              progress,
-            );
+        if (supportsRange && fileSize >= _minSizeForParallel) {
+          await _downloadParallel(download, fileSize, masterCancelToken, notificationId);
+        } else {
+          await _downloadSingle(download, masterCancelToken, notificationId);
+        }
+      }
 
-            _notifyListeners();
-          }
-        },
-      );
-
-      // Download completed
       download.status = DownloadStatus.completed;
       download.completedAt = DateTime.now();
       download.speed = 0;
       download.downloadedSize = download.totalSize;
-
-      // Show completion notification
       await _showCompletedNotification(notificationId, download);
     } on DioException catch (e) {
-      if (e.type == DioExceptionType.cancel) {
-        // Paused by user
-      } else {
+      if (e.type != DioExceptionType.cancel) {
         download.status = DownloadStatus.failed;
         download.error = e.message ?? 'Download failed';
         await _showFailedNotification(notificationId, download);
@@ -177,6 +176,289 @@ class DownloadService {
     _cancelTokens.remove(download.id);
     _notifyListeners();
     await _saveDownloads();
+  }
+
+  bool _isHls(String url) {
+    final lower = url.toLowerCase().split('?').first;
+    return lower.endsWith('.m3u8') || lower.endsWith('.m3u');
+  }
+
+  // ─── HLS / M3U8 downloader ────────────────────────────────────────────────
+
+  Future<void> _downloadHls(
+    Download download,
+    String playlistUrl,
+    String savePath,
+    CancelToken masterCancelToken,
+    int notificationId,
+  ) async {
+    final headers = download.headers;
+    final dio = _makeDio(headers);
+
+    // 1. Fetch master / media playlist
+    final playlistResp = await dio.get(
+      playlistUrl,
+      options: Options(responseType: ResponseType.plain),
+    );
+    final playlistText = playlistResp.data as String;
+
+    // 2. If master playlist → pick highest bandwidth variant
+    String mediaPlaylistUrl = playlistUrl;
+    if (playlistText.contains('#EXT-X-STREAM-INF')) {
+      mediaPlaylistUrl = _pickBestVariant(playlistText, playlistUrl);
+      final mediaResp = await dio.get(
+        mediaPlaylistUrl,
+        options: Options(responseType: ResponseType.plain),
+      );
+      final segments = _parseSegments(mediaResp.data as String, mediaPlaylistUrl);
+      await _downloadSegments(download, segments, headers, savePath, masterCancelToken, notificationId);
+    } else {
+      final segments = _parseSegments(playlistText, playlistUrl);
+      await _downloadSegments(download, segments, headers, savePath, masterCancelToken, notificationId);
+    }
+  }
+
+  String _pickBestVariant(String master, String baseUrl) {
+    final lines = master.split('\n');
+    int bestBw = -1;
+    String bestUri = '';
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.startsWith('#EXT-X-STREAM-INF')) {
+        final bwMatch = RegExp(r'BANDWIDTH=(\d+)').firstMatch(line);
+        final bw = int.tryParse(bwMatch?.group(1) ?? '') ?? 0;
+        if (bw > bestBw && i + 1 < lines.length) {
+          final uri = lines[i + 1].trim();
+          if (uri.isNotEmpty && !uri.startsWith('#')) {
+            bestBw = bw;
+            bestUri = uri;
+          }
+        }
+      }
+    }
+    if (bestUri.isEmpty) return baseUrl;
+    return _resolveUrl(bestUri, baseUrl);
+  }
+
+  List<String> _parseSegments(String playlist, String baseUrl) {
+    final segments = <String>[];
+    for (final line in playlist.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+      segments.add(_resolveUrl(trimmed, baseUrl));
+    }
+    return segments;
+  }
+
+  String _resolveUrl(String uri, String base) {
+    if (uri.startsWith('http://') || uri.startsWith('https://')) return uri;
+    final baseUri = Uri.parse(base);
+    if (uri.startsWith('/')) {
+      return '${baseUri.scheme}://${baseUri.host}$uri';
+    }
+    final pathParts = baseUri.path.split('/')..removeLast();
+    return '${baseUri.scheme}://${baseUri.host}${pathParts.join('/')}/$uri';
+  }
+
+  Future<void> _downloadSegments(
+    Download download,
+    List<String> segments,
+    Map<String, String>? headers,
+    String savePath,
+    CancelToken masterCancelToken,
+    int notificationId,
+  ) async {
+    final total = segments.length;
+    download.totalSize = total; // treat segment count as "total" for progress
+    final tmpDir = Directory('$savePath.segs');
+    await tmpDir.create(recursive: true);
+
+    final downloaded = List<int>.filled(total, 0); // 0=pending,1=done
+    int completedCount = 0;
+    DateTime lastUpdate = DateTime.now();
+    int lastCount = 0;
+
+    // Semaphore: max _hlsConcurrency at once
+    int running = 0;
+    int nextIdx = 0;
+    final completer = Completer<void>();
+    Object? firstError;
+
+    void scheduleNext() {
+      while (running < _hlsConcurrency && nextIdx < total) {
+        if (masterCancelToken.isCancelled) break;
+        final i = nextIdx++;
+        running++;
+        final segDio = _makeDio(headers);
+        final ct = CancelToken();
+        masterCancelToken.whenCancel.then((_) { if (!ct.isCancelled) ct.cancel(); });
+
+        segDio.download(
+          segments[i],
+          '${tmpDir.path}/seg_${i.toString().padLeft(6, '0')}',
+          cancelToken: ct,
+          options: Options(headers: headers),
+        ).then((_) {
+          downloaded[i] = 1;
+          completedCount++;
+          running--;
+
+          final now = DateTime.now();
+          final elapsed = now.difference(lastUpdate).inMilliseconds;
+          if (elapsed >= 500) {
+            final diff = completedCount - lastCount;
+            download.speed = (elapsed > 0) ? ((diff * 1000) ~/ elapsed) : 0;
+            lastUpdate = now;
+            lastCount = completedCount;
+            download.downloadedSize = completedCount;
+            final pct = ((completedCount * 100) / total).toInt();
+            _showDownloadNotification(notificationId, download.filename, completedCount, total, pct);
+            _notifyListeners();
+          }
+
+          if (completedCount == total) {
+            completer.complete();
+          } else {
+            scheduleNext();
+          }
+        }).catchError((e) {
+          running--;
+          firstError ??= e;
+          // cancel remaining
+          if (!masterCancelToken.isCancelled) masterCancelToken.cancel('Segment error');
+          if (!completer.isCompleted) completer.completeError(e);
+        });
+      }
+
+      if (running == 0 && nextIdx >= total && !completer.isCompleted) {
+        if (firstError != null) {
+          completer.completeError(firstError!);
+        } else {
+          completer.complete();
+        }
+      }
+    }
+
+    try {
+      scheduleNext();
+      await completer.future;
+
+      // Concatenate all segments in order
+      final outFile = File(savePath);
+      final sink = outFile.openWrite();
+      for (int i = 0; i < total; i++) {
+        final seg = File('${tmpDir.path}/seg_${i.toString().padLeft(6, '0')}');
+        if (await seg.exists()) await sink.addStream(seg.openRead());
+      }
+      await sink.flush();
+      await sink.close();
+
+      download.totalSize = await outFile.length();
+      download.downloadedSize = download.totalSize;
+    } finally {
+      try { if (await tmpDir.exists()) await tmpDir.delete(recursive: true); } catch (_) {}
+    }
+  }
+
+  // ─── Parallel chunked direct download ─────────────────────────────────────
+
+  Future<void> _downloadParallel(
+    Download download,
+    int fileSize,
+    CancelToken masterCancelToken,
+    int notificationId,
+  ) async {
+    final numChunks = _parallelChunks;
+    final chunkSize = (fileSize / numChunks).ceil();
+    final tmpDir = Directory('${download.savePath}.parts');
+    await tmpDir.create(recursive: true);
+
+    final chunkDownloaded = List<int>.filled(numChunks, 0);
+    DateTime lastUpdate = DateTime.now();
+    int lastBytes = 0;
+
+    void onProgress() {
+      final total = chunkDownloaded.fold(0, (a, b) => a + b);
+      download.downloadedSize = total;
+      final now = DateTime.now();
+      final elapsed = now.difference(lastUpdate).inMilliseconds;
+      if (elapsed >= 400) {
+        final bytesDiff = total - lastBytes;
+        download.speed = (elapsed > 0) ? ((bytesDiff * 1000) ~/ elapsed) : 0;
+        lastUpdate = now;
+        lastBytes = total;
+        final progress = ((total * 100) / fileSize).toInt();
+        _showDownloadNotification(notificationId, download.filename, total, fileSize, progress);
+        _notifyListeners();
+      }
+    }
+
+    try {
+      // Each chunk gets its OWN Dio instance → own TCP connection
+      final chunkFutures = List.generate(numChunks, (i) {
+        final start = i * chunkSize;
+        final end = (i == numChunks - 1) ? fileSize - 1 : start + chunkSize - 1;
+        final partPath = '${tmpDir.path}/part_$i';
+        final ct = CancelToken();
+        masterCancelToken.whenCancel.then((_) { if (!ct.isCancelled) ct.cancel(); });
+
+        final chunkDio = _makeDio(null); // separate TCP connection per chunk
+        return chunkDio.download(
+          download.url,
+          partPath,
+          cancelToken: ct,
+          options: Options(headers: {'Range': 'bytes=$start-$end'}),
+          onReceiveProgress: (received, _) {
+            chunkDownloaded[i] = received;
+            onProgress();
+          },
+        );
+      });
+
+      await Future.wait(chunkFutures);
+
+      // Merge in order
+      final outFile = File(download.savePath);
+      final sink = outFile.openWrite();
+      for (int i = 0; i < numChunks; i++) {
+        await sink.addStream(File('${tmpDir.path}/part_$i').openRead());
+      }
+      await sink.flush();
+      await sink.close();
+    } finally {
+      try { if (await tmpDir.exists()) await tmpDir.delete(recursive: true); } catch (_) {}
+    }
+  }
+
+  Future<void> _downloadSingle(
+    Download download,
+    CancelToken cancelToken,
+    int notificationId,
+  ) async {
+    DateTime lastUpdate = DateTime.now();
+    int lastBytes = 0;
+
+    await _makeDio(null).download(
+      download.url,
+      download.savePath,
+      cancelToken: cancelToken,
+      onReceiveProgress: (received, total) async {
+        download.downloadedSize = received;
+        if (total > 0 && download.totalSize == 0) download.totalSize = total;
+
+        final now = DateTime.now();
+        final elapsed = now.difference(lastUpdate).inMilliseconds;
+        if (elapsed >= 400) {
+          final bytesDiff = received - lastBytes;
+          download.speed = (elapsed > 0) ? ((bytesDiff * 1000) ~/ elapsed) : 0;
+          lastUpdate = now;
+          lastBytes = received;
+          final progress = (total > 0) ? ((received * 100) / total).toInt() : 0;
+          await _showDownloadNotification(notificationId, download.filename, received, total, progress);
+          _notifyListeners();
+        }
+      },
+    );
   }
 
   Future<void> _showDownloadNotification(

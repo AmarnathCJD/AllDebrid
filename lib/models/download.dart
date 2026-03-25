@@ -11,7 +11,7 @@ class Download {
   final String id;
   final String url;
   final String filename;
-  final String savePath;
+  String savePath;
   int totalSize; // Made mutable for updating during download
   int downloadedSize;
   DownloadStatus status;
@@ -19,6 +19,7 @@ class Download {
   String? error;
   DateTime createdAt;
   DateTime? completedAt;
+  final Map<String, String>? headers;
 
   Download({
     required this.id,
@@ -32,6 +33,7 @@ class Download {
     this.error,
     required this.createdAt,
     this.completedAt,
+    this.headers,
   });
 
   double get progress {
@@ -59,6 +61,7 @@ class Download {
       'error': error,
       'createdAt': createdAt.toIso8601String(),
       'completedAt': completedAt?.toIso8601String(),
+      if (headers != null) 'headers': headers,
     };
   }
 
@@ -76,6 +79,9 @@ class Download {
       createdAt: DateTime.parse(json['createdAt']),
       completedAt: json['completedAt'] != null
           ? DateTime.parse(json['completedAt'])
+          : null,
+      headers: json['headers'] != null
+          ? Map<String, String>.from(json['headers'])
           : null,
     );
   }

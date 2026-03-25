@@ -34,6 +34,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../utils/helpers.dart';
 import '../../providers/media_info_providers.dart';
 import 'package:hugeicons/hugeicons.dart';
+import '../../providers/download_provider.dart';
 
 class MediaInfoScreen extends ConsumerStatefulWidget {
   final ImdbSearchResult item;
@@ -964,13 +965,12 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     final year = _item.year;
     final rating = _item.rating ?? 'N/A';
     final overview = _item.description ?? '';
-    final url =
-        'https://www.themoviedb.org/${_isTvShow ? 'tv' : 'movie'}/${_item.id}';
+    final deepLink = 'https://p.x32am.com/${_item.id}';
 
     final text = 'Check out $title ($year)\n'
         'Rating: $rating/10\n\n'
         '$overview\n\n'
-        'View more: $url';
+        '$deepLink';
 
     XFile? posterFile;
     try {
@@ -1539,13 +1539,13 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Row(
+            if (!_isLoading && _item.rating != null) Row(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: _buildStarRating(double.tryParse(_item.rating!) ?? 0),
             ),
-            const SizedBox(width: 8),
-            Text(
+            if (!_isLoading && _item.rating != null) const SizedBox(width: 8),
+            if (!_isLoading && _item.rating != null) Text(
               _item.rating!,
               style: GoogleFonts.outfit(
                 color: Colors.white,
@@ -1797,6 +1797,41 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                     ),
                     const SizedBox(width: 8),
                     _NetflixLikeRatingButton(mediaId: _item.id),
+                    const SizedBox(width: 8),
+                    // Download button
+                    Container(
+                      height: 54,
+                      width: 54,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.35),
+                            blurRadius: 12,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(16),
+                        child: InkWell(
+                          onTap: () {
+                            HapticFeedback.mediumImpact();
+                            _showDownloadSourceSelector();
+                          },
+                          borderRadius: BorderRadius.circular(14),
+                          child: Center(
+                            child: HugeIcon(
+                              icon: HugeIcons.strokeRoundedDownload04,
+                              color: Colors.white.withValues(alpha: 0.9),
+                              size: 22.0,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                     const SizedBox(width: 8),
                     Builder(
                       builder: (context) {
@@ -2494,6 +2529,21 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                                   ),
                                 ],
                               ],
+                            ),
+                          ),
+                          // Download button
+                          GestureDetector(
+                            onTap: () {
+                              HapticFeedback.lightImpact();
+                              _showDownloadSourceSelector(episode: episode);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                              child: Icon(
+                                Icons.download_rounded,
+                                size: 18,
+                                color: Colors.white.withValues(alpha: 0.35),
+                              ),
                             ),
                           ),
                         ],
@@ -3787,6 +3837,253 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     );
   }
 
+  void _showDownloadSourceSelector({
+    RiveStreamEpisode? episode,
+    int? seasonNumber,
+    int? episodeNumber,
+  }) {
+    final key = _createVideoSourceKey(
+      episode: episode,
+      seasonNumber: seasonNumber,
+      episodeNumber: episodeNumber,
+    );
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        if (key == null) {
+          return _buildSourceSelectorContainer(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                'No download sources available for this title',
+                style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
+          );
+        }
+
+        return Consumer(
+          builder: (context, ref, _) {
+            final asyncSources = ref.watch(videoSourcesProvider(key));
+
+            return _buildSourceSelectorContainer(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.download_rounded, size: 14, color: Colors.white54),
+                      const SizedBox(width: 6),
+                      Text(
+                        'DOWNLOAD FROM',
+                        style: GoogleFonts.outfit(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          fontSize: 8,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  asyncSources.when(
+                    loading: () => _buildAllProvidersLoading(),
+                    error: (_, __) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text('Could not load sources',
+                          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
+                    ),
+                    data: (data) {
+                      final tiles = _providerOrder.map((providerKey) {
+                        final result = data[providerKey];
+                        final displayName = _providerDisplayNames[providerKey] ?? providerKey;
+                        final isAvailable = result != null &&
+                            (result.sources.isNotEmpty || result.isTg);
+
+                        if (!isAvailable) return _buildSourceOptionDisabled(displayName);
+
+                        if (providerKey == 'tg') {
+                          return _buildDownloadOption(
+                            displayName,
+                            Icons.telegram,
+                            () {
+                              if (episode != null) {
+                                _downloadEpisodeTg(episode);
+                              } else if (seasonNumber != null && episodeNumber != null) {
+                                _downloadEpisodeTg(RiveStreamEpisode(
+                                  id: 0,
+                                  seasonNumber: seasonNumber,
+                                  episodeNumber: episodeNumber,
+                                ));
+                              } else {
+                                _downloadMovieTg();
+                              }
+                            },
+                          );
+                        }
+
+                        return _buildDownloadOption(
+                          displayName,
+                          Icons.download_rounded,
+                          () => _downloadFromProvider(
+                            providerKey: providerKey,
+                            cachedResult: result,
+                            episode: episode,
+                            seasonNumber: seasonNumber,
+                            episodeNumber: episodeNumber,
+                          ),
+                        );
+                      }).toList();
+
+                      return Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: tiles.map((t) => SizedBox(width: 140, child: t)).toList(),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildDownloadOption(String name, IconData icon, VoidCallback onTap) {
+    return Material(
+      color: Colors.white.withValues(alpha: 0.05),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: () {
+          Navigator.pop(context);
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.25)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: AppTheme.primaryColor),
+              const SizedBox(width: 6),
+              Text(
+                name,
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _downloadFromProvider({
+    required String providerKey,
+    required ProviderSourceResult cachedResult,
+    RiveStreamEpisode? episode,
+    int? seasonNumber,
+    int? episodeNumber,
+  }) async {
+    final sources = cachedResult.sources;
+    if (sources.isEmpty) {
+      _showSnackBar('No downloadable sources from this provider', isError: true);
+      return;
+    }
+
+    // Pick highest quality source (first after sort, or best available)
+    final source = sources.first;
+    final isTv = episode != null || seasonNumber != null;
+    final sNum = episode?.seasonNumber ?? seasonNumber;
+    final eNum = episode?.episodeNumber ?? episodeNumber;
+
+    String ext = 'mp4';
+    final urlLower = source.url.toLowerCase().split('?').first;
+    if (urlLower.endsWith('.m3u8') || urlLower.endsWith('.m3u')) ext = 'ts';
+    else if (urlLower.endsWith('.mkv')) ext = 'mkv';
+    else if (urlLower.endsWith('.webm')) ext = 'webm';
+
+    final epTag = (isTv && sNum != null && eNum != null)
+        ? ' S${sNum.toString().padLeft(2, '0')}E${eNum.toString().padLeft(2, '0')}'
+        : '';
+    final quality = source.quality.isNotEmpty ? ' [${source.quality}]' : '';
+    final filename = '${widget.item.title}$epTag$quality ($providerKey).$ext';
+
+    // Merge provider headers with source-level headers
+    final headers = <String, String>{
+      ...?cachedResult.headers,
+      ...?source.headers,
+    };
+
+    final cleanFilename = filename.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+    final downloadProvider = provider_pkg.Provider.of<DownloadProvider>(context, listen: false);
+    downloadProvider.startDownload(
+      url: source.url,
+      filename: cleanFilename,
+      headers: headers.isEmpty ? null : headers,
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Row(children: [
+          const Icon(Icons.download_rounded, color: Colors.white, size: 16),
+          const SizedBox(width: 8),
+          Expanded(child: Text('Downloading "${cleanFilename.length > 40 ? '${cleanFilename.substring(0, 40)}...' : cleanFilename}"')),
+        ]),
+        backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.9),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ));
+    }
+  }
+
+  Future<void> _downloadMovieTg() async {
+    String? imdbId = _details?.imdbId;
+    if ((imdbId == null || imdbId.isEmpty) && _item.id.startsWith('tt')) {
+      imdbId = _item.id;
+    }
+    final tmdbIdInt = int.tryParse(_item.id);
+    if (imdbId == null || imdbId.isEmpty) {
+      if (tmdbIdInt != null) {
+        imdbId = await RiveStreamService().getImdbIdFromTmdbId(tmdbIdInt, isMovie: true);
+      }
+    }
+    if (imdbId == null || imdbId.isEmpty) {
+      if (mounted) _showSnackBar('Could not resolve IMDb ID', isError: true);
+      return;
+    }
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isDismissible: true,
+      isScrollControlled: true,
+      builder: (ctx) => _TgFlowSheet(
+        imdbId: imdbId!,
+        isTv: false,
+        season: null,
+        episode: null,
+        title: widget.item.title,
+        tmdbId: tmdbIdInt,
+        mediaItem: widget.item,
+        downloadMode: true,
+      ),
+    );
+  }
+
   Widget _buildSourceSelectorContainer({required Widget child}) {
     return Container(
       margin: const EdgeInsets.fromLTRB(24, 0, 24, 16),
@@ -3804,6 +4101,41 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         ],
       ),
       child: child,
+    );
+  }
+
+  Future<void> _downloadEpisodeTg(RiveStreamEpisode episode) async {
+    String? imdbId = _details?.imdbId;
+    if ((imdbId == null || imdbId.isEmpty) && _item.id.startsWith('tt')) {
+      imdbId = _item.id;
+    }
+    final tmdbIdInt = int.tryParse(_item.id);
+    if (imdbId == null || imdbId.isEmpty) {
+      if (tmdbIdInt != null) {
+        imdbId = await RiveStreamService()
+            .getImdbIdFromTmdbId(tmdbIdInt, isMovie: false);
+      }
+    }
+    if (imdbId == null || imdbId.isEmpty) {
+      if (mounted) _showSnackBar('Could not resolve IMDb ID', isError: true);
+      return;
+    }
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isDismissible: true,
+      isScrollControlled: true,
+      builder: (ctx) => _TgFlowSheet(
+        imdbId: imdbId!,
+        isTv: true,
+        season: episode.seasonNumber,
+        episode: episode.episodeNumber,
+        title: '${widget.item.title} - S${episode.seasonNumber}E${episode.episodeNumber}',
+        tmdbId: tmdbIdInt,
+        mediaItem: widget.item,
+        downloadMode: true,
+      ),
     );
   }
 
@@ -4399,6 +4731,7 @@ class _TgFlowSheet extends StatefulWidget {
   final String title;
   final int? tmdbId;
   final ImdbSearchResult? mediaItem;
+  final bool downloadMode;
 
   const _TgFlowSheet({
     required this.imdbId,
@@ -4408,6 +4741,7 @@ class _TgFlowSheet extends StatefulWidget {
     required this.title,
     this.tmdbId,
     this.mediaItem,
+    this.downloadMode = false,
   });
 
   @override
@@ -4558,11 +4892,6 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
             .toList();
 
         _tvStreams = streams; // cache for use in _selectQuality
-
-        if (qualities.length == 1) {
-          await _selectQuality(qualities.first);
-          return;
-        }
 
         setState(() {
           _qualities = qualities;
@@ -5001,7 +5330,7 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'SELECT STREAM QUALITY',
+          widget.downloadMode ? 'SELECT QUALITY TO DOWNLOAD' : 'SELECT STREAM QUALITY',
           style: GoogleFonts.outfit(
             color: Colors.white.withValues(alpha: 0.3),
             fontSize: 11,
@@ -5021,19 +5350,26 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
                 borderRadius: BorderRadius.circular(8),
                 child: Row(
                   children: [
-                    // Main tap area — plays first/best file directly
+                    // Main tap area — plays/downloads first/best file directly
                     Expanded(
                       child: Material(
                         color: Colors.white.withValues(alpha: 0.03),
                         child: InkWell(
-                          onTap: () => _playQualityDirect(q),
+                          onTap: () => widget.downloadMode
+                              ? _downloadQualityDirect(q)
+                              : _playQualityDirect(q),
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 14, vertical: 12),
                             child: Row(
                               children: [
-                                const Icon(Icons.play_circle_outline_rounded,
-                                    color: Color(0xFF24A1DE), size: 14),
+                                Icon(
+                                  widget.downloadMode
+                                      ? Icons.download_rounded
+                                      : Icons.play_circle_outline_rounded,
+                                  color: const Color(0xFF24A1DE),
+                                  size: 14,
+                                ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
@@ -5127,6 +5463,69 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
     }
     // TV / status path: delegate to existing _selectQuality (goes straight to player)
     await _selectQuality(quality);
+  }
+
+  Future<void> _downloadQualityDirect(TgStatusQuality quality) async {
+    if (_movieResult != null) {
+      final qFiles = _movieResult!.qualities.firstWhere(
+        (q) => q.label == quality.label,
+        orElse: () => _movieResult!.qualities.first,
+      );
+      if (qFiles.files.isNotEmpty) {
+        await _downloadTgFile(qFiles.files.first, qualityLabel: quality.label);
+      }
+      return;
+    }
+    // TV path: use first stream result matching quality
+    final stream = _tvStreams.isNotEmpty ? _tvStreams.first : null;
+    if (stream == null) return;
+    final service = TgService();
+    final url = service.getStreamUrl(stream.url, stream.hash);
+    final filename = '${widget.title} - ${quality.label}.mp4';
+    _startDownload(url: url, filename: filename);
+  }
+
+  Future<void> _downloadTgFile(TgMovieFile file, {String? qualityLabel}) async {
+    final service = TgService();
+    final stream = await service.getMovieStreamByMessageId(file.messageId);
+    if (stream == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to resolve download URL')),
+        );
+      }
+      return;
+    }
+    final url = service.getStreamUrl(stream.url, stream.hash);
+    final label = qualityLabel ?? stream.quality;
+    final ext = file.name.contains('.') ? file.name.split('.').last : 'mp4';
+    final filename = '${widget.title}${label.isNotEmpty ? ' - $label' : ''} (${widget.season != null ? 'S${widget.season!.toString().padLeft(2, '0')}E${widget.episode.toString().padLeft(2, '0')}' : ''}).$ext';
+    _startDownload(url: url, filename: filename, totalSize: file.fileSize);
+  }
+
+  void _startDownload({required String url, required String filename, int? totalSize, Map<String, String>? headers}) {
+    final downloadProvider = provider_pkg.Provider.of<DownloadProvider>(context, listen: false);
+    downloadProvider.startDownload(
+      url: url,
+      filename: filename.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_'),
+      totalSize: totalSize,
+      headers: headers,
+    );
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.download_rounded, color: Colors.white, size: 16),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Downloading "${filename.length > 40 ? '${filename.substring(0, 40)}...' : filename}"')),
+          ],
+        ),
+        backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.9),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   Widget _buildFilesView() {
@@ -5238,6 +5637,13 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
                       background: Colors.green.withValues(alpha: 0.1),
                     ),
                   const Spacer(),
+                  GestureDetector(
+                    onTap: () => _downloadTgFile(file, qualityLabel: _selectedQuality?.label),
+                    child: const Padding(
+                      padding: EdgeInsets.only(right: 12),
+                      child: Icon(Icons.download_rounded, color: Colors.white38, size: 20),
+                    ),
+                  ),
                   const Icon(Icons.play_circle_fill_rounded,
                       color: Color(0xFF24A1DE), size: 24),
                 ],
