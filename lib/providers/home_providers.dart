@@ -109,7 +109,15 @@ class RiveTrendingNotifier extends AsyncNotifier<RiveTrendingState> {
 
 // ─── Carousel Index Provider ───────────────────────────────────────────────
 
-final carouselIndexProvider = StateProvider<int>((ref) => 0);
+class CarouselIndexNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void setIndex(int index) => state = index;
+}
+
+final carouselIndexProvider =
+    NotifierProvider<CarouselIndexNotifier, int>(CarouselIndexNotifier.new);
 
 // ─── Genre Provider ────────────────────────────────────────────────────────
 
@@ -117,11 +125,14 @@ final genreProvider =
     AsyncNotifierProvider.family<GenreNotifier, GenreInterestResult?, String>(
         GenreNotifier.new);
 
-class GenreNotifier extends FamilyAsyncNotifier<GenreInterestResult?, String> {
+class GenreNotifier extends AsyncNotifier<GenreInterestResult?> {
+  GenreNotifier(this.genreId);
+
+  final String genreId;
   final _riveService = RiveStreamService();
 
   @override
-  Future<GenreInterestResult?> build(String genreId) async {
+  Future<GenreInterestResult?> build() async {
     return await _riveService.getGenreInterest(genreId);
   }
 }

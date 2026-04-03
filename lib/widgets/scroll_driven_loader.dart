@@ -3,10 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:async';
 
 // Scroll-driven loading mixin for lazy loading
-mixin ScrollDrivenLoading<T extends ConsumerStatefulWidget> on ConsumerState<T>, TickerProviderStateMixin<T> {
+mixin ScrollDrivenLoading<T extends ConsumerStatefulWidget>
+    on ConsumerState<T>, TickerProviderStateMixin<T> {
   ScrollController? get scrollController;
   Timer? _scrollDebounceTimer;
-  bool _isLoadingMore = false;
+  final bool _isLoadingMore = false;
 
   bool get isLoadingMore => _isLoadingMore;
 
@@ -40,10 +41,20 @@ mixin ScrollDrivenLoading<T extends ConsumerStatefulWidget> on ConsumerState<T>,
 }
 
 // Provider for tracking scroll position
-final scrollPositionProvider = StateProvider<double>((ref) => 0);
+class ScrollPositionNotifier extends Notifier<double> {
+  @override
+  double build() => 0;
+
+  void setPosition(double position) => state = position;
+}
+
+final scrollPositionProvider = NotifierProvider<ScrollPositionNotifier, double>(
+  ScrollPositionNotifier.new,
+);
 
 // Provider for detecting if near bottom
-final isNearBottomProvider = Provider.family<bool, ScrollController>((ref, controller) {
+final isNearBottomProvider =
+    Provider.family<bool, ScrollController>((ref, controller) {
   if (!controller.hasClients) return false;
   final maxScroll = controller.position.maxScrollExtent;
   final currentScroll = controller.position.pixels;

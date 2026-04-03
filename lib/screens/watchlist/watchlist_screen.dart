@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
+import '../../providers/riverpod_compat.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../providers/app_provider.dart';
 import '../../services/imdb_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/widgets.dart';
 import '../home/media_info_screen.dart';
 
 class WatchlistScreen extends StatefulWidget {
@@ -21,7 +22,9 @@ class _WatchlistScreenState extends State<WatchlistScreen>
   String _selectedCategory = 'All';
   late AnimationController _fabController;
   final ScrollController _scrollController = ScrollController();
+  final TextEditingController _searchController = TextEditingController();
   String _sortMode = 'custom';
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -43,6 +46,7 @@ class _WatchlistScreenState extends State<WatchlistScreen>
   void dispose() {
     _fabController.dispose();
     _scrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -55,17 +59,9 @@ class _WatchlistScreenState extends State<WatchlistScreen>
           final rawWatchlist = provider.watchlist;
 
           var filteredWatchlist = rawWatchlist.where((item) {
-            bool categoryMatch = true;
-            if (_selectedCategory == 'All') {
-              categoryMatch = true;
-            } else if (_selectedCategory == 'Movies') {
-              categoryMatch = item.kind == 'movie';
-            } else if (_selectedCategory == 'TV Shows') {
-              categoryMatch = item.kind == 'tvSeries' ||
-                  item.kind == 'tvseries' ||
-                  item.kind == 'tvEpisode';
-            }
-            return categoryMatch;
+            final categoryMatch = _matchesCategory(item);
+            final searchMatch = _matchesSearch(item);
+            return categoryMatch && searchMatch;
           }).toList();
 
           filteredWatchlist = _applySorting(filteredWatchlist, provider);
@@ -73,46 +69,56 @@ class _WatchlistScreenState extends State<WatchlistScreen>
             children: [
               _buildHeader(provider),
               Expanded(
-                child: filteredWatchlist.isEmpty
-                    ? _buildEmptyState()
-                    : ListView(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                child: ListView(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                  children: [
+                    _buildStatsRow(rawWatchlist),
+                    const SizedBox(height: 12),
+                    _buildSearchBar(),
+                    const SizedBox(height: 12),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
+                      child: Row(
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
-                            child: Row(
-                              children: [
-                                Expanded(child: _buildCategories()),
-                                _buildSortButton(),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          GridView.builder(
-                            padding: EdgeInsets.zero,
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3,
-                              childAspectRatio: 0.60,
-                              crossAxisSpacing: 10,
-                              mainAxisSpacing: 10,
-                            ),
-                            itemCount: filteredWatchlist.length,
-                            itemBuilder: (context, index) {
-                              final item = filteredWatchlist[index];
-                              return _WatchlistGridItem(
-                                key: ValueKey(item.id),
-                                item: item,
-                                provider: provider,
-                                onDelete: () => _deleteItem(provider, item),
-                              );
-                            },
-                          ),
+                          Expanded(child: _buildCategories()),
+                          _buildSortButton(),
                         ],
                       ),
+                    ),
+                    if (filteredWatchlist.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 48),
+                        child: _buildEmptyState(),
+                      )
+                    else ...[
+                      _buildResultsSummary(filteredWatchlist.length),
+                      const SizedBox(height: 10),
+                      GridView.builder(
+                        padding: EdgeInsets.zero,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          childAspectRatio: 0.60,
+                          crossAxisSpacing: 10,
+                          mainAxisSpacing: 10,
+                        ),
+                        itemCount: filteredWatchlist.length,
+                        itemBuilder: (context, index) {
+                          final item = filteredWatchlist[index];
+                          return _WatchlistGridItem(
+                            key: ValueKey(item.id),
+                            item: item,
+                            provider: provider,
+                            onDelete: () => _deleteItem(provider, item),
+                          );
+                        },
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ],
           );
@@ -157,104 +163,106 @@ class _WatchlistScreenState extends State<WatchlistScreen>
     }
   }
 
+  bool _matchesCategory(ImdbSearchResult item) {
+    if (_selectedCategory == 'All') {
+      return true;
+    }
+    if (_selectedCategory == 'Movies') {
+      return item.kind == 'movie';
+    }
+    if (_selectedCategory == 'TV Shows') {
+      return item.kind == 'tvSeries' ||
+          item.kind == 'tvseries' ||
+          item.kind == 'tvEpisode';
+    }
+    if (_selectedCategory == 'Priority') {
+      return item.priority >= 7;
+    }
+    return true;
+  }
+
+  bool _matchesSearch(ImdbSearchResult item) {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) {
+      return true;
+    }
+
+    final searchable = [
+      item.title,
+      item.year,
+      item.genres ?? '',
+      item.kind ?? '',
+      item.description ?? '',
+      item.stars ?? '',
+    ].join(' ').toLowerCase();
+
+    return searchable.contains(query);
+  }
+
   Widget _buildHeader(AppProvider provider) {
     return SafeArea(
       bottom: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      child: ScreenIntroHeader(
+        eyebrow: 'YOUR',
+        title: 'WATCHLIST',
+        subtitle: 'Keep track of what you want to watch next.',
+        trailing: PopupMenuButton<String>(
+          icon: Icon(Icons.more_vert_rounded,
+              color: AppTheme.textMuted, size: 22),
+          color: AppTheme.elevatedColor,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(
+                  color: AppTheme.borderColor.withValues(alpha: 0.3),
+                  width: 1)),
+          onSelected: (value) async {
+            if (value == 'export') {
+              final jsonStr = jsonEncode(
+                  provider.watchlist.map((e) => e.toJson()).toList());
+              await Clipboard.setData(ClipboardData(text: jsonStr));
+              if (context.mounted) {
+                showAppSnackBar(
+                  context,
+                  'Watchlist JSON copied to clipboard.',
+                  type: AppFeedbackType.success,
+                );
+              }
+            } else if (value == 'clear') {
+              _showClearDialog();
+            }
+          },
+          itemBuilder: (context) => [
+            PopupMenuItem(
+              value: 'export',
+              child: Row(
                 children: [
-                  Text(
-                    'YOUR',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textMuted,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                  const Text(
-                    'WATCHLIST',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -1,
-                      height: 1,
-                      color: AppTheme.textPrimary,
-                    ),
-                  ),
+                  const Icon(Icons.ios_share_rounded,
+                      color: AppTheme.primaryColor, size: 18),
+                  const SizedBox(width: 12),
+                  Text('Export as JSON',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      )),
                 ],
               ),
             ),
-            PopupMenuButton<String>(
-              icon: Icon(Icons.more_vert_rounded,
-                  color: AppTheme.textMuted, size: 22),
-              color: AppTheme.elevatedColor,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  side: BorderSide(
-                      color: AppTheme.borderColor.withValues(alpha: 0.3),
-                      width: 1)),
-              onSelected: (value) async {
-                if (value == 'export') {
-                  final jsonStr = jsonEncode(
-                      provider.watchlist.map((e) => e.toJson()).toList());
-                  await Clipboard.setData(ClipboardData(text: jsonStr));
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Watchlist JSON copied to clipboard!',
-                            style: GoogleFonts.outfit(fontSize: 12)),
-                        backgroundColor: AppTheme.successColor,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                    );
-                  }
-                } else if (value == 'clear') {
-                  _showClearDialog();
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'export',
-                  child: Row(
-                    children: [
-                      const Icon(Icons.ios_share_rounded,
-                          color: AppTheme.primaryColor, size: 18),
-                      const SizedBox(width: 12),
-                      Text('Export as JSON',
-                          style: GoogleFonts.outfit(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          )),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'clear',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_sweep_rounded,
-                          color: AppTheme.errorColor, size: 18),
-                      const SizedBox(width: 12),
-                      Text('Clear All',
-                          style: GoogleFonts.outfit(
-                            color: AppTheme.errorColor,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          )),
-                    ],
-                  ),
-                ),
-              ],
+            PopupMenuItem(
+              value: 'clear',
+              child: Row(
+                children: [
+                  Icon(Icons.delete_sweep_rounded,
+                      color: AppTheme.errorColor, size: 18),
+                  const SizedBox(width: 12),
+                  Text('Clear All',
+                      style: GoogleFonts.outfit(
+                        color: AppTheme.errorColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      )),
+                ],
+              ),
             ),
           ],
         ),
@@ -315,7 +323,7 @@ class _WatchlistScreenState extends State<WatchlistScreen>
   }
 
   Widget _buildCategories() {
-    final categories = ['All', 'Movies', 'TV Shows'];
+    final categories = ['All', 'Movies', 'TV Shows', 'Priority'];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -361,42 +369,114 @@ class _WatchlistScreenState extends State<WatchlistScreen>
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withValues(alpha: 0.08),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.bookmark_border_rounded,
-              size: 32,
-              color: AppTheme.primaryColor.withValues(alpha: 0.3),
-            ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: EmptyState(
+          icon: _searchQuery.trim().isNotEmpty
+              ? Icons.search_off_rounded
+              : Icons.bookmark_border_rounded,
+          title: _searchQuery.trim().isNotEmpty
+              ? 'No matches for "$_searchQuery"'
+              : _selectedCategory == 'All'
+                  ? 'Your watchlist is empty'
+                  : 'No $_selectedCategory saved yet',
+          subtitle: _searchQuery.trim().isNotEmpty
+              ? 'Try a different title, genre, year, or clear the search.'
+              : _selectedCategory == 'All'
+                  ? 'Save movies and shows from Home, Browse, or Search to build your list.'
+                  : 'Try switching filters or add more titles from Browse.',
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatsRow(List<ImdbSearchResult> watchlist) {
+    final movieCount = watchlist.where((item) => item.kind == 'movie').length;
+    final showCount = watchlist.where((item) {
+      return item.kind == 'tvSeries' ||
+          item.kind == 'tvseries' ||
+          item.kind == 'tvEpisode';
+    }).length;
+    final priorityCount = watchlist.where((item) => item.priority >= 7).length;
+
+    return Row(
+      children: [
+        Expanded(
+          child: StatBox(
+            label: 'Saved',
+            value: '${watchlist.length}',
+            icon: Icons.bookmark_rounded,
           ),
-          const SizedBox(height: 16),
-          Text(
-            _selectedCategory == 'All'
-                ? 'Your watchlist is empty'
-                : 'No $_selectedCategory in your watchlist',
-            style: GoogleFonts.outfit(
-              fontSize: 15,
-              color: AppTheme.textMuted,
-              fontWeight: FontWeight.w600,
-            ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: StatBox(
+            label: 'Movies / TV',
+            value: '$movieCount / $showCount',
+            icon: Icons.movie_filter_rounded,
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Browse to add items',
-            style: GoogleFonts.outfit(
-              fontSize: 12,
-              color: AppTheme.textMuted.withValues(alpha: 0.6),
-            ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: StatBox(
+            label: 'Priority',
+            value: '$priorityCount',
+            icon: Icons.flag_rounded,
+            color: AppTheme.warningColor,
           ),
-        ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Container(
+      decoration: AppTheme.compactCardDecoration(),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (value) {
+          setState(() => _searchQuery = value);
+        },
+        style: GoogleFonts.outfit(
+          color: AppTheme.textPrimary,
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+        decoration: InputDecoration(
+          hintText: 'Search titles, genres, cast, or year',
+          prefixIcon:
+              const Icon(Icons.search_rounded, color: AppTheme.textMuted),
+          suffixIcon: _searchQuery.trim().isEmpty
+              ? null
+              : IconButton(
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                  icon: const Icon(Icons.close_rounded,
+                      color: AppTheme.textMuted),
+                ),
+          border: InputBorder.none,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResultsSummary(int count) {
+    final descriptor = _searchQuery.trim().isNotEmpty
+        ? 'matching "$_searchQuery"'
+        : _selectedCategory == 'All'
+            ? 'saved right now'
+            : 'in $_selectedCategory';
+
+    return Text(
+      '$count ${count == 1 ? 'title' : 'titles'} $descriptor',
+      style: GoogleFonts.outfit(
+        color: AppTheme.textMuted,
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
       ),
     );
   }
@@ -405,18 +485,28 @@ class _WatchlistScreenState extends State<WatchlistScreen>
     HapticFeedback.mediumImpact();
     provider.toggleWatchlist(item);
 
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
       SnackBar(
-        content: Text('Removed "${item.title}"',
-            style: GoogleFonts.outfit(fontSize: 12)),
+        content: Text(
+          'Removed "${item.title}"',
+          style: GoogleFonts.outfit(fontSize: 12),
+        ),
         backgroundColor: AppTheme.elevatedColor,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         action: SnackBarAction(
           label: 'UNDO',
           textColor: AppTheme.primaryColor,
-          onPressed: () => provider.toggleWatchlist(item),
+          onPressed: () {
+            provider.toggleWatchlist(item);
+            showAppSnackBar(
+              context,
+              'Restored "${item.title}"',
+              type: AppFeedbackType.success,
+            );
+          },
         ),
         duration: const Duration(seconds: 3),
       ),
@@ -459,6 +549,11 @@ class _WatchlistScreenState extends State<WatchlistScreen>
           TextButton(
             onPressed: () {
               context.read<AppProvider>().clearWatchlist();
+              showAppSnackBar(
+                context,
+                'Watchlist cleared',
+                type: AppFeedbackType.info,
+              );
               Navigator.pop(context);
             },
             child: Text('Clear',

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
+import '../../providers/riverpod_compat.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../theme/app_theme.dart';
@@ -352,7 +352,8 @@ class DownloadCard extends StatelessWidget {
             ),
           ),
 
-          Divider(height: 1, color: AppTheme.borderColor.withValues(alpha: 0.5)),
+          Divider(
+              height: 1, color: AppTheme.borderColor.withValues(alpha: 0.5)),
 
           // Details & Actions
           Padding(
@@ -432,7 +433,8 @@ class DownloadCard extends StatelessWidget {
                       },
                       icon: const Icon(Icons.copy_rounded, size: 20),
                       style: IconButton.styleFrom(
-                        backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.1),
+                        backgroundColor:
+                            AppTheme.primaryColor.withValues(alpha: 0.1),
                         foregroundColor: AppTheme.primaryColor,
                       ),
                     ),

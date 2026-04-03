@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import '../../providers/riverpod_compat.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../providers/providers.dart';
 import '../../theme/app_theme.dart';

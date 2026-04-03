@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:provider/provider.dart';
+import '../../providers/riverpod_compat.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -25,6 +25,7 @@ import '../../services/video_source_service.dart';
 import '../../services/vidlink_service.dart';
 import '../../services/kisskh_service.dart';
 import '../../services/wyzie_service.dart';
+import '../../widgets/widgets.dart';
 import 'package:hugeicons/hugeicons.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -33,9 +34,11 @@ class PlayerScreen extends StatefulWidget {
   final bool isLocal;
   final List<VideoSource>? sources;
   final Map<String, String>? httpHeaders;
+
   /// When provided, the player opens immediately and waits for this future to
   /// resolve before starting playback. [url] should be empty string in this case.
   final Future<String?> Function()? urlResolver;
+
   /// The quality label that is currently playing (e.g. '480p'). Used to set
   /// the correct active item in the quality picker.
   final String? initialQuality;
@@ -163,12 +166,14 @@ class _PlayerScreenState extends State<PlayerScreen>
   // Swipe-up episodes list
   List<RiveStreamEpisode> _seasonEpisodes = [];
   bool _fetchingSeasonEpisodes = false;
-  Map<int, List<RiveStreamEpisode>> _episodesCache = {};
+  final Map<int, List<RiveStreamEpisode>> _episodesCache = {};
 
   Future<void> _fetchSeasonEpisodes() async {
     if (_currentSeason == null ||
         widget.tmdbId == null ||
-        _fetchingSeasonEpisodes) return;
+        _fetchingSeasonEpisodes) {
+      return;
+    }
 
     // Check cache first
     final cacheKey = _currentSeason!;
@@ -213,7 +218,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             child: Row(
               children: [
                 Text(
-                  'Season ${_currentSeason}',
+                  'Season $_currentSeason',
                   style: GoogleFonts.outfit(
                     color: Colors.white,
                     fontSize: 12,
@@ -1586,7 +1591,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                                 ],
                               ),
                             )
-                          : const SizedBox.shrink(key: ValueKey('right-hidden')),
+                          : const SizedBox.shrink(
+                              key: ValueKey('right-hidden')),
                     ),
                   ),
                 ],
@@ -2772,6 +2778,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
+  // ignore: unused_element
   Widget _buildActionBtn(
       {required IconData icon, required VoidCallback onTap}) {
     return IconButton(
@@ -2890,9 +2897,8 @@ class _PlayerScreenState extends State<PlayerScreen>
           final isMovie = _currentSeason == null;
 
           if (isMovie && widget.tmdbId != null) {
-            final streams = await tgService.getMovieStreams(
-                widget.tmdbId.toString(),
-                quality: newQuality);
+            final streams = await tgService
+                .getMovieStreams(widget.tmdbId.toString(), quality: newQuality);
             if (streams.isNotEmpty) {
               final match = streams.firstWhere(
                 (s) => s.quality == newQuality,
@@ -2988,18 +2994,10 @@ class _PlayerScreenState extends State<PlayerScreen>
     setState(() => _currentQuality = newQuality);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Quality changed to $newQuality',
-              style:
-                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-          duration: const Duration(milliseconds: 1200),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: AppTheme.cardColor,
-          margin:
-              const EdgeInsets.only(top: 60, left: 60, right: 60, bottom: 0),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        ),
+      showAppSnackBar(
+        context,
+        'Quality changed to $newQuality',
+        type: AppFeedbackType.success,
       );
     }
   }
@@ -3028,8 +3026,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     // Extract codec/format extras
     final extras = <String>[];
     if (q.contains('HDR')) extras.add('HDR');
-    if (q.contains('HEVC') || q.contains('H.265') || q.contains('X265')) extras.add('HEVC');
-    if (q.contains('H.264') || q.contains('H264') || q.contains('X264') || q.contains('AVC')) extras.add('H.264');
+    if (q.contains('HEVC') || q.contains('H.265') || q.contains('X265'))
+      extras.add('HEVC');
+    if (q.contains('H.264') ||
+        q.contains('H264') ||
+        q.contains('X264') ||
+        q.contains('AVC')) extras.add('H.264');
     if (q.contains('DOLBY') || q.contains('DV')) extras.add('Dolby');
 
     if (res != null) {
@@ -3255,16 +3257,10 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     await _addExternalSubtitle(path);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Subtitle added.',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-          duration: Duration(milliseconds: 1200),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: AppTheme.cardColor,
-          margin: EdgeInsets.only(top: 60, left: 20, right: 20, bottom: 0),
-          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        ),
+      showAppSnackBar(
+        context,
+        'Subtitle added',
+        type: AppFeedbackType.success,
       );
     }
   }
@@ -3289,16 +3285,10 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Subtitle downloaded and applied.',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-          duration: Duration(milliseconds: 1200),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: AppTheme.cardColor,
-          margin: EdgeInsets.only(top: 60, left: 20, right: 20, bottom: 0),
-          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        ),
+      showAppSnackBar(
+        context,
+        'Subtitle downloaded and applied',
+        type: AppFeedbackType.success,
       );
     }
   }
@@ -3357,9 +3347,10 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<void> _changeProvider(String providerName) async {
     if (widget.tmdbId == null && widget.title == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Cannot verify media info for provider switch')),
+      showAppSnackBar(
+        context,
+        'Cannot verify media info for provider switch',
+        type: AppFeedbackType.error,
       );
       return;
     }
@@ -3479,22 +3470,28 @@ class _PlayerScreenState extends State<PlayerScreen>
 
         setState(() => _isReady = true);
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Switched to $providerName')),
+        showAppSnackBar(
+          context,
+          'Switched to $providerName',
+          type: AppFeedbackType.success,
         );
       } else {
         setState(() => _isReady = true); // Revert loading
         await _player.play();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No sources found for this provider')),
+        showAppSnackBar(
+          context,
+          'No sources found for this provider',
+          type: AppFeedbackType.error,
         );
       }
     } catch (e) {
       print('Provider switch error: $e');
       setState(() => _isReady = true);
       await _player.play();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error switching provider: $e')),
+      showAppSnackBar(
+        context,
+        'Error switching provider: $e',
+        type: AppFeedbackType.error,
       );
     }
   }

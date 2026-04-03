@@ -10,8 +10,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:provider/provider.dart';
+import '../../providers/riverpod_compat.dart';
 import '../../providers/app_provider.dart';
+import '../../utils/watchlist_actions.dart';
+import '../../widgets/widgets.dart';
 
 class BrowsePage extends StatefulWidget {
   const BrowsePage({super.key});
@@ -469,18 +471,7 @@ class _BrowsePageState extends State<BrowsePage> {
       rating: item.rating.toStringAsFixed(1),
       description: item.plot,
     );
-    final wasInWatchlist = appProvider.isInWatchlist(imdbItem.id);
-    appProvider.toggleWatchlist(imdbItem);
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-            wasInWatchlist ? 'Removed from Watchlist' : 'Added to Watchlist'),
-        duration: const Duration(seconds: 1),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: const Color(0xFF1E1E1E),
-      ),
-    );
+    toggleWatchlistWithFeedback(context, appProvider, imdbItem);
   }
 
   @override
@@ -534,76 +525,47 @@ class _BrowsePageState extends State<BrowsePage> {
   Widget _buildHeader() {
     return SafeArea(
       bottom: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        children: [
+          ScreenIntroHeader(
+            eyebrow: 'EXPLORE',
+            title: 'DISCOVER',
+            subtitle:
+                'Browse hand-picked shelves and quick mood-based discovery.',
+            trailing: PopupMenuButton<String>(
+              icon: Icon(Icons.more_vert_rounded,
+                  color: AppTheme.textMuted, size: 22),
+              color: AppTheme.elevatedColor,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: BorderSide(
+                      color: AppTheme.borderColor.withValues(alpha: 0.3),
+                      width: 1)),
+              onSelected: (value) {
+                if (value == 'refresh') {
+                  _handleRefresh();
+                }
+              },
+              itemBuilder: (BuildContext context) => [
+                PopupMenuItem(
+                  value: 'refresh',
+                  child: Row(
                     children: [
+                      Icon(Icons.refresh,
+                          color: AppTheme.textPrimary, size: 18),
+                      const SizedBox(width: 12),
                       Text(
-                        'EXPLORE',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.textMuted,
-                          letterSpacing: 1.5,
-                        ),
-                      ),
-                      const Text(
-                        'DISCOVER',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -1,
-                          height: 1,
-                          color: AppTheme.textPrimary,
-                        ),
+                        'Refresh All',
+                        style: TextStyle(color: AppTheme.textPrimary),
                       ),
                     ],
                   ),
                 ),
-                PopupMenuButton<String>(
-                  icon: Icon(Icons.more_vert_rounded,
-                      color: AppTheme.textMuted, size: 22),
-                  color: AppTheme.elevatedColor,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      side: BorderSide(
-                          color: AppTheme.borderColor.withValues(alpha: 0.3),
-                          width: 1)),
-                  onSelected: (value) {
-                    if (value == 'refresh') {
-                      _handleRefresh();
-                    }
-                  },
-                  itemBuilder: (BuildContext context) => [
-                    PopupMenuItem(
-                      value: 'refresh',
-                      child: Row(
-                        children: [
-                          Icon(Icons.refresh,
-                              color: AppTheme.textPrimary, size: 18),
-                          const SizedBox(width: 12),
-                          Text(
-                            'Refresh All',
-                            style: TextStyle(color: AppTheme.textPrimary),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
               ],
             ),
-            const SizedBox(height: 16),
-          ],
-        ),
+          ),
+          const SizedBox(height: 16),
+        ],
       ),
     );
   }
@@ -750,13 +712,12 @@ class _BrowsePageState extends State<BrowsePage> {
     if (section.items.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-        child: Center(
-          child: Text(
-            'No content available',
-            style: GoogleFonts.outfit(
-              color: AppTheme.textMuted,
-              fontSize: 12,
-            ),
+        child: const SizedBox(
+          height: 140,
+          child: EmptyState(
+            icon: Icons.movie_filter_outlined,
+            title: 'Nothing here yet',
+            subtitle: 'Try refreshing or explore another category.',
           ),
         ),
       );
@@ -809,19 +770,7 @@ class _BrowsePageState extends State<BrowsePage> {
                     rating: item.rating.toStringAsFixed(1),
                     description: item.plot,
                   );
-                  final wasInWatchlist = appProvider.isInWatchlist(imdbItem.id);
-                  appProvider.toggleWatchlist(imdbItem);
-                  ScaffoldMessenger.of(context).clearSnackBars();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(wasInWatchlist
-                          ? 'Removed from Watchlist'
-                          : 'Added to Watchlist'),
-                      duration: const Duration(seconds: 1),
-                      behavior: SnackBarBehavior.floating,
-                      backgroundColor: const Color(0xFF1E1E1E),
-                    ),
-                  );
+                  toggleWatchlistWithFeedback(context, appProvider, imdbItem);
                   cardSetState(() {});
                 },
                 onLongPress: () {
@@ -838,19 +787,8 @@ class _BrowsePageState extends State<BrowsePage> {
                         rating: item.rating.toStringAsFixed(1),
                         description: item.plot,
                       );
-                      final wasInWatchlist =
-                          appProvider.isInWatchlist(imdbItem.id);
-                      if (!wasInWatchlist) {
-                        appProvider.toggleWatchlist(imdbItem);
-                        ScaffoldMessenger.of(context).clearSnackBars();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: const Text('Added to Watchlist'),
-                            duration: const Duration(seconds: 1),
-                            behavior: SnackBarBehavior.floating,
-                            backgroundColor: const Color(0xFF1E1E1E),
-                          ),
-                        );
+                      if (!appProvider.isInWatchlist(imdbItem.id)) {
+                        addToWatchlistIfMissing(context, appProvider, imdbItem);
                         cardSetState(() {});
                       }
                       Navigator.pop(context);

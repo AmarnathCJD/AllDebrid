@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import '../../theme/app_theme.dart';
-import '../../services/ai_recommendation_service.dart';
-import '../../providers/app_provider.dart';
-import '../../services/imdb_service.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../providers/riverpod_compat.dart';
+
+import '../widgets/widgets.dart';
 import './home/media_info_screen.dart';
+import './settings/settings_screen.dart';
+import '../../providers/app_provider.dart';
+import '../../services/ai_recommendation_service.dart';
+import '../../services/imdb_service.dart';
+import '../../theme/app_theme.dart';
+import '../../utils/watchlist_actions.dart';
 
 class AIRecommendationPage extends StatefulWidget {
   const AIRecommendationPage({super.key});
@@ -17,50 +21,67 @@ class AIRecommendationPage extends StatefulWidget {
 
 class _AIRecommendationPageState extends State<AIRecommendationPage>
     with TickerProviderStateMixin {
-  late AnimationController _micController;
-  late AIRecommendationService _aiService;
+  late AnimationController _pulseController;
   final ImdbService _imdbService = ImdbService();
+  final TextEditingController _promptController = TextEditingController();
 
   List<Map<String, dynamic>> _recommendations = [];
   bool _isLoading = false;
   String? _error;
   String? _selectedMood;
+  final Set<String> _resolvingRecommendationKeys = <String>{};
 
-  final List<Map<String, String>> _moods = [
-    {'label': 'Happy', 'icon': '😊', 'value': 'happy'},
-    {'label': 'Vibey', 'icon': '✨', 'value': 'vibey'},
-    {'label': 'Sad', 'icon': '😢', 'value': 'sad'},
-    {'label': 'Emotional', 'icon': '💔', 'value': 'emotional'},
-    {'label': 'Thrilling', 'icon': '🔥', 'value': 'thrilling'},
-    {'label': 'Horror', 'icon': '👻', 'value': 'horror'},
-    {'label': 'Romantic', 'icon': '💕', 'value': 'romantic'},
-    {'label': 'Funny', 'icon': '😂', 'value': 'funny'},
+  final List<({String label, IconData icon, String value})> _moods = [
+    (label: 'Happy', icon: Icons.wb_sunny_outlined, value: 'happy'),
+    (label: 'Vibey', icon: Icons.auto_awesome_outlined, value: 'vibey'),
+    (label: 'Sad', icon: Icons.cloud_outlined, value: 'sad'),
+    (
+      label: 'Emotional',
+      icon: Icons.favorite_border_rounded,
+      value: 'emotional'
+    ),
+    (label: 'Thrilling', icon: Icons.bolt_rounded, value: 'thrilling'),
+    (label: 'Horror', icon: Icons.nightlight_round, value: 'horror'),
+    (label: 'Romantic', icon: Icons.favorite_rounded, value: 'romantic'),
+    (
+      label: 'Funny',
+      icon: Icons.sentiment_very_satisfied_rounded,
+      value: 'funny'
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    _micController = AnimationController(
+    _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1600),
     )..repeat(reverse: true);
-
-    // Initialize AI service with API key (you'll need to add this to AppProvider)
-    final appProvider = context.read<AppProvider>();
-    _aiService = AIRecommendationService(
-      apiKey: appProvider.getSetting<String>('nvidia_api_key') ?? '',
-    );
   }
 
   @override
   void dispose() {
-    _micController.dispose();
+    _pulseController.dispose();
+    _promptController.dispose();
     super.dispose();
   }
 
   Future<void> _getRecommendations() async {
-    if (_selectedMood == null) {
-      setState(() => _error = 'Select a mood first');
+    final appProvider = context.read<AppProvider>();
+    final apiKey = appProvider.getSetting<String>('nvidia_api_key') ?? '';
+    if (apiKey.trim().isEmpty) {
+      setState(() {
+        _error =
+            'Add your NVIDIA API key in Settings to unlock AI recommendations.';
+      });
+      return;
+    }
+
+    final prompt = _buildPrompt();
+    if (prompt.isEmpty) {
+      setState(() {
+        _error = 'Pick a mood or describe what you want to watch.';
+      });
       return;
     }
 
@@ -71,39 +92,220 @@ class _AIRecommendationPageState extends State<AIRecommendationPage>
     });
 
     try {
-      final appProvider = context.read<AppProvider>();
-      final watchlistTitles =
-          appProvider.watchlist.map((item) => item.title).toList();
+      final aiService = AIRecommendationService(apiKey: apiKey);
+      final watchlistContext =
+          appProvider.watchlist.map(_compactWatchlistItem).toList();
+      final likedGenres = _collectTopGenres(appProvider.watchlist);
 
-      final recommendations = await _aiService.getRecommendations(
-        userInput: _selectedMood!,
-        watchlist: watchlistTitles,
-        continueWatching: [],
-        likedGenres: [],
+      final recommendations = await aiService.getRecommendations(
+        userInput: prompt,
+        watchlist: watchlistContext,
+        continueWatching: const [],
+        likedGenres: likedGenres,
       );
 
-      if (recommendations.isNotEmpty) {
+      if (!mounted) return;
+
+      if (recommendations.isEmpty) {
         setState(() {
-          _recommendations = recommendations;
+          _error = 'No recommendations were generated.';
         });
-      } else {
-        setState(() => _error = 'Could not generate recommendations');
+        return;
       }
+
+      setState(() {
+        _recommendations = recommendations;
+      });
+
+      showAppSnackBar(
+        context,
+        'Found ${recommendations.length} recommendations for you.',
+        type: AppFeedbackType.success,
+      );
     } catch (e) {
-      setState(() => _error = 'Error: $e');
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  String _buildPrompt() {
+    final freeform = _promptController.text.trim();
+    if (_selectedMood != null && freeform.isNotEmpty) {
+      return 'Mood: $_selectedMood. Request: $freeform';
+    }
+    if (_selectedMood != null) {
+      return 'Mood: $_selectedMood';
+    }
+    return freeform;
+  }
+
+  String _compactWatchlistItem(ImdbSearchResult item) {
+    final parts = <String>[item.title];
+    if ((item.genres ?? '').trim().isNotEmpty) {
+      parts.add('genres: ${item.genres}');
+    }
+    if ((item.kind ?? '').trim().isNotEmpty) {
+      parts.add('type: ${item.kind}');
+    }
+    if (item.year.trim().isNotEmpty) {
+      parts.add('year: ${item.year}');
+    }
+    return parts.join(' | ');
+  }
+
+  List<String> _collectTopGenres(List<ImdbSearchResult> watchlist) {
+    final counts = <String, int>{};
+    for (final item in watchlist) {
+      final rawGenres = item.genres;
+      if (rawGenres == null || rawGenres.trim().isEmpty) continue;
+      for (final genre in rawGenres.split(',')) {
+        final normalized = genre.trim();
+        if (normalized.isEmpty) continue;
+        counts.update(normalized, (value) => value + 1, ifAbsent: () => 1);
+      }
+    }
+
+    final sorted = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return sorted.take(6).map((entry) => entry.key).toList();
+  }
+
+  String _recommendationKey(Map<String, dynamic> recommendation) {
+    final imdbId = (recommendation['imdbId'] ?? '').toString().trim();
+    if (imdbId.isNotEmpty) {
+      return imdbId;
+    }
+    return (recommendation['title'] ?? '').toString().trim().toLowerCase();
+  }
+
+  bool _isRecommendationSaved(
+    Map<String, dynamic> recommendation,
+    List<ImdbSearchResult> watchlist,
+  ) {
+    final imdbId = (recommendation['imdbId'] ?? '').toString().trim();
+    if (imdbId.isNotEmpty) {
+      return watchlist.any((item) => item.id == imdbId);
+    }
+
+    final title =
+        (recommendation['title'] ?? '').toString().trim().toLowerCase();
+    return watchlist.any((item) => item.title.trim().toLowerCase() == title);
+  }
+
+  Future<ImdbSearchResult?> _resolveRecommendationItem(
+    Map<String, dynamic> recommendation,
+  ) async {
+    var item = ImdbSearchResult(
+      id: (recommendation['imdbId'] ?? '').toString(),
+      title: (recommendation['title'] ?? '').toString(),
+      posterUrl: '',
+      year: '',
+      kind: recommendation['type'] == 'tv' ? 'tvseries' : 'movie',
+      genres: (recommendation['genre'] ?? '').toString(),
+      description: (recommendation['reason'] ?? '').toString(),
+    );
+
+    if (item.id.isNotEmpty) {
+      final detailedItem = await _imdbService.fetchDetails(item.id);
+      if (detailedItem.title.trim().isNotEmpty) {
+        return detailedItem;
+      }
+      return item;
+    }
+
+    final results = await _imdbService.search(item.title);
+    if (results.isNotEmpty) {
+      return results.first;
+    }
+    return item.title.trim().isEmpty ? null : item;
+  }
+
+  Future<void> _openRecommendationDetails(
+    Map<String, dynamic> recommendation,
+  ) async {
+    final key = _recommendationKey(recommendation);
+    setState(() => _resolvingRecommendationKeys.add(key));
+
+    try {
+      final item = await _resolveRecommendationItem(recommendation);
+      if (!mounted || item == null) return;
+
+      Navigator.push(
+        context,
+        PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 500),
+          pageBuilder: (_, animation, __) => MediaInfoScreen(item: item),
+          transitionsBuilder: (_, animation, __, child) =>
+              FadeTransition(opacity: animation, child: child),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        'Could not open this title right now.',
+        type: AppFeedbackType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _resolvingRecommendationKeys.remove(key));
+      }
+    }
+  }
+
+  Future<void> _saveRecommendation(Map<String, dynamic> recommendation) async {
+    final key = _recommendationKey(recommendation);
+    final appProvider = context.read<AppProvider>();
+
+    setState(() => _resolvingRecommendationKeys.add(key));
+    try {
+      final item = await _resolveRecommendationItem(recommendation);
+      if (!mounted || item == null) return;
+
+      final added = await addToWatchlistIfMissing(context, appProvider, item);
+      if (!added && mounted) {
+        showAppSnackBar(
+          context,
+          'Already in your watchlist',
+          type: AppFeedbackType.info,
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        'Could not save this recommendation.',
+        type: AppFeedbackType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _resolvingRecommendationKeys.remove(key));
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final appProvider = context.watch<AppProvider>();
+    final watchlistCount = appProvider.watchlist.length;
+    final hasApiKey = (appProvider.getSetting<String>('nvidia_api_key') ?? '')
+        .trim()
+        .isNotEmpty;
+    final topGenres = _collectTopGenres(appProvider.watchlist);
+
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       body: SafeArea(
         child: Column(
           children: [
-            // Header
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
               child: Column(
@@ -122,195 +324,251 @@ class _AIRecommendationPageState extends State<AIRecommendationPage>
                   Text(
                     'What\'s Your Vibe?',
                     style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontSize: 28,
+                      color: AppTheme.textPrimary,
+                      fontSize: 30,
                       fontWeight: FontWeight.w900,
                       letterSpacing: -1,
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    'Tell me your mood and I\'ll find your next favorite',
+                  const Text(
+                    'Blend your mood with your watchlist to get sharper picks.',
                     style: TextStyle(
-                      color: Colors.white54,
+                      color: AppTheme.textSecondary,
                       fontSize: 13,
                     ),
                   ),
-                ],
-              ),
-            ),
-            // Mood Selection
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Pick Your Mood',
-                    style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _moods.map((mood) {
-                      final isSelected = _selectedMood == mood['value'];
-                      return GestureDetector(
-                        onTap: () {
-                          setState(() => _selectedMood = mood['value']);
-                        },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isSelected
-                                  ? AppTheme.primaryColor
-                                  : AppTheme.borderColor.withValues(alpha: 0.3),
-                              width: isSelected ? 2 : 1,
-                            ),
-                            color: isSelected
-                                ? AppTheme.primaryColor.withValues(alpha: 0.15)
-                                : AppTheme.elevatedColor,
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                mood['icon']!,
-                                style: const TextStyle(fontSize: 16),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                mood['label']!,
-                                style: GoogleFonts.outfit(
-                                  color: isSelected
-                                      ? AppTheme.primaryColor
-                                      : Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: isSelected
-                                      ? FontWeight.w700
-                                      : FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
                   const SizedBox(height: 16),
-                  // Get Recommendations Button
-                  GestureDetector(
-                    onTap: _isLoading ? null : _getRecommendations,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        gradient: LinearGradient(
-                          colors: [
-                            AppTheme.primaryColor,
-                            AppTheme.accentColor,
-                          ],
-                        ),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      child: Center(
-                        child: _isLoading
-                            ? SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.black.withValues(alpha: 0.8),
-                                  ),
-                                ),
-                              )
-                            : Text(
-                                'Get Recommendations',
-                                style: GoogleFonts.outfit(
-                                  color: Colors.black,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                      ),
-                    ),
-                  ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        color: AppTheme.errorColor.withValues(alpha: 0.15),
-                        border: Border.all(
-                          color: AppTheme.errorColor.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      child: Text(
-                        _error!,
-                        style: TextStyle(
-                          color: AppTheme.errorColor,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Recommendations List
-            if (_recommendations.isNotEmpty)
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: _recommendations.length,
-                  itemBuilder: (context, index) {
-                    final rec = _recommendations[index];
-                    return _RecommendationCard(
-                      recommendation: rec,
-                      imdbService: _imdbService,
-                      delay: Duration(milliseconds: index * 100),
-                    ).animate().fadeIn(duration: 400.ms).slideY(
-                          begin: 0.3,
-                          duration: 400.ms,
-                          curve: Curves.easeOutCubic,
-                        );
-                  },
-                ),
-              )
-            else if (!_isLoading)
-              Expanded(
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  Row(
                     children: [
-                      Icon(
-                        Icons.auto_awesome_rounded,
-                        size: 64,
-                        color: Colors.white10,
+                      Expanded(
+                        child: StatBox(
+                          label: 'Watchlist',
+                          value: '$watchlistCount',
+                          icon: Icons.bookmark_rounded,
+                        ),
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Tell me your mood',
-                        style: GoogleFonts.outfit(
-                          color: Colors.white30,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: StatBox(
+                          label: 'AI Setup',
+                          value: hasApiKey ? 'Ready' : 'Required',
+                          icon: hasApiKey
+                              ? Icons.check_circle_rounded
+                              : Icons.key_off_rounded,
+                          color: hasApiKey
+                              ? AppTheme.successColor
+                              : AppTheme.warningColor,
                         ),
                       ),
                     ],
                   ),
-                ),
+                ],
               ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                children: [
+                  CompactCard(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pick Your Mood',
+                          style: GoogleFonts.outfit(
+                            color: AppTheme.textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _moods.map((mood) {
+                            final isSelected = _selectedMood == mood.value;
+                            return GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _selectedMood = mood.value;
+                                });
+                              },
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 180),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? AppTheme.primaryColor
+                                          .withValues(alpha: 0.12)
+                                      : AppTheme.elevatedColor,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? AppTheme.primaryColor
+                                        : AppTheme.borderColor,
+                                    width: isSelected ? 1.5 : 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      mood.icon,
+                                      size: 16,
+                                      color: isSelected
+                                          ? AppTheme.primaryColor
+                                          : AppTheme.textSecondary,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      mood.label,
+                                      style: GoogleFonts.outfit(
+                                        color: isSelected
+                                            ? AppTheme.primaryColor
+                                            : AppTheme.textPrimary,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _promptController,
+                          maxLines: 3,
+                          minLines: 2,
+                          decoration: const InputDecoration(
+                            hintText:
+                                'Optional: cozy sci-fi, a fast thriller, something like my watchlist but lighter...',
+                          ),
+                        ),
+                        if (topGenres.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            'Based on your watchlist: ${topGenres.join(', ')}',
+                            style: const TextStyle(
+                              color: AppTheme.textMuted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: CompactButton(
+                            text: hasApiKey
+                                ? 'Get Recommendations'
+                                : 'Open Settings to Add API Key',
+                            icon: hasApiKey
+                                ? Icons.auto_awesome_rounded
+                                : Icons.settings_rounded,
+                            isLoading: _isLoading,
+                            onPressed: hasApiKey
+                                ? _getRecommendations
+                                : () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => const SettingsScreen(),
+                                      ),
+                                    );
+                                  },
+                          ),
+                        ),
+                        if (_error != null) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color:
+                                  AppTheme.errorColor.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color:
+                                    AppTheme.errorColor.withValues(alpha: 0.25),
+                              ),
+                            ),
+                            child: Text(
+                              _error!,
+                              style: const TextStyle(
+                                color: AppTheme.errorColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_recommendations.isNotEmpty) ...[
+                    Text(
+                      'Recommended For You',
+                      style: GoogleFonts.outfit(
+                        color: AppTheme.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    ..._recommendations.asMap().entries.map((entry) {
+                      final recommendation = entry.value;
+                      final recommendationKey =
+                          _recommendationKey(recommendation);
+                      return _RecommendationCard(
+                        recommendation: recommendation,
+                        isSaved: _isRecommendationSaved(
+                          recommendation,
+                          appProvider.watchlist,
+                        ),
+                        isResolving: _resolvingRecommendationKeys
+                            .contains(recommendationKey),
+                        onAddToWatchlist: () =>
+                            _saveRecommendation(recommendation),
+                        onOpenDetails: () =>
+                            _openRecommendationDetails(recommendation),
+                      ).animate().fadeIn(duration: 350.ms).slideY(
+                            begin: 0.2,
+                            duration: 350.ms,
+                            curve: Curves.easeOutCubic,
+                            delay: Duration(milliseconds: entry.key * 80),
+                          );
+                    }),
+                  ] else if (!_isLoading)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 48),
+                      child: ScaleTransition(
+                        scale: Tween<double>(begin: 0.98, end: 1.02).animate(
+                          CurvedAnimation(
+                            parent: _pulseController,
+                            curve: Curves.easeInOut,
+                          ),
+                        ),
+                        child: EmptyState(
+                          icon: Icons.auto_awesome_rounded,
+                          title: hasApiKey
+                              ? 'Start with a mood or prompt'
+                              : 'AI setup needed',
+                          subtitle: hasApiKey
+                              ? 'Pick a vibe, add a short prompt, and I will generate five picks.'
+                              : 'Add your NVIDIA API key in Settings to unlock recommendations.',
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -320,13 +578,17 @@ class _AIRecommendationPageState extends State<AIRecommendationPage>
 
 class _RecommendationCard extends StatelessWidget {
   final Map<String, dynamic> recommendation;
-  final ImdbService imdbService;
-  final Duration delay;
+  final bool isSaved;
+  final bool isResolving;
+  final Future<void> Function() onAddToWatchlist;
+  final Future<void> Function() onOpenDetails;
 
   const _RecommendationCard({
     required this.recommendation,
-    required this.imdbService,
-    required this.delay,
+    required this.isSaved,
+    required this.isResolving,
+    required this.onAddToWatchlist,
+    required this.onOpenDetails,
   });
 
   @override
@@ -334,42 +596,12 @@ class _RecommendationCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: GestureDetector(
-        onTap: () async {
-          // Search for the IMDB ID if not provided
-          var item = ImdbSearchResult(
-            id: recommendation['imdbId'] ?? '',
-            title: recommendation['title'],
-            posterUrl: '',
-            year: '',
-            kind: recommendation['type'] == 'tv' ? 'tvseries' : 'movie',
-          );
-
-          if (item.id.isEmpty) {
-            // Search IMDB
-            final results = await imdbService.search(recommendation['title']);
-            if (results.isNotEmpty) {
-              item = results.first;
-            }
-          }
-
-          if (context.mounted) {
-            Navigator.push(
-              context,
-              PageRouteBuilder(
-                transitionDuration: const Duration(milliseconds: 500),
-                pageBuilder: (_, animation, __) => MediaInfoScreen(item: item),
-                transitionsBuilder: (_, animation, __, child) =>
-                    FadeTransition(opacity: animation, child: child),
-              ),
-            );
-          }
-        },
+        onTap: isResolving ? null : onOpenDetails,
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: AppTheme.borderColor.withValues(alpha: 0.3),
-              width: 1,
             ),
             color: AppTheme.elevatedColor,
           ),
@@ -384,9 +616,9 @@ class _RecommendationCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          recommendation['title'],
+                          recommendation['title'] ?? '',
                           style: GoogleFonts.outfit(
-                            color: Colors.white,
+                            color: AppTheme.textPrimary,
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
                           ),
@@ -407,8 +639,8 @@ class _RecommendationCard extends StatelessWidget {
                                     .withValues(alpha: 0.15),
                               ),
                               child: Text(
-                                recommendation['type'].toUpperCase(),
-                                style: TextStyle(
+                                recommendation['type'].toString().toUpperCase(),
+                                style: const TextStyle(
                                   color: AppTheme.primaryColor,
                                   fontSize: 9,
                                   fontWeight: FontWeight.w700,
@@ -418,9 +650,9 @@ class _RecommendationCard extends StatelessWidget {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                recommendation['genre'],
-                                style: TextStyle(
-                                  color: Colors.white54,
+                                recommendation['genre'] ?? '',
+                                style: const TextStyle(
+                                  color: AppTheme.textSecondary,
                                   fontSize: 11,
                                 ),
                                 maxLines: 1,
@@ -433,21 +665,58 @@ class _RecommendationCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Icon(
-                    Icons.auto_awesome_rounded,
-                    color: AppTheme.primaryColor,
-                    size: 24,
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.auto_awesome_rounded,
+                      color: AppTheme.primaryColor,
+                      size: 20,
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
               Text(
-                recommendation['reason'],
-                style: TextStyle(
-                  color: Colors.white70,
+                recommendation['reason'] ?? '',
+                style: const TextStyle(
+                  color: AppTheme.textSecondary,
                   fontSize: 12,
                   height: 1.5,
                 ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: CompactButton(
+                      text: isSaved ? 'Saved' : 'Save',
+                      icon: isSaved
+                          ? Icons.bookmark_added_rounded
+                          : Icons.bookmark_add_rounded,
+                      isSmall: true,
+                      isPrimary: !isSaved,
+                      isLoading: isResolving,
+                      onPressed:
+                          isSaved || isResolving ? null : onAddToWatchlist,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: CompactButton(
+                      text: 'Open',
+                      icon: Icons.open_in_new_rounded,
+                      isSmall: true,
+                      isPrimary: false,
+                      isLoading: false,
+                      onPressed: isResolving ? null : onOpenDetails,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

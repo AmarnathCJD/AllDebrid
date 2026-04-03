@@ -12,7 +12,7 @@ import '../../theme/app_theme.dart';
 import '../torrents/torrent_search_screen.dart';
 import '../../services/video_source_service.dart';
 import '../player/player_screen.dart';
-import 'package:provider/provider.dart' as provider_pkg hide Consumer;
+import '../../providers/riverpod_compat.dart' as provider_pkg hide Consumer;
 import '../../providers/app_provider.dart';
 import 'dart:ui';
 
@@ -32,9 +32,11 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../utils/helpers.dart';
+import '../../utils/watchlist_actions.dart';
 import '../../providers/media_info_providers.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../../providers/download_provider.dart';
+import 'widgets/media_detail_widgets.dart';
 
 class MediaInfoScreen extends ConsumerStatefulWidget {
   final ImdbSearchResult item;
@@ -722,6 +724,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     );
   }
 
+  // ignore: unused_element
   Future<void> _playTrailer() async {
     final url = _trailerPreviewUrl ?? await _resolveTrailerStreamUrl();
 
@@ -915,11 +918,10 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                         trackHeight: 3,
                         thumbShape:
                             const RoundSliderThumbShape(enabledThumbRadius: 6),
-                        overlayShape: const RoundSliderOverlayShape(
-                            overlayRadius: 14),
+                        overlayShape:
+                            const RoundSliderOverlayShape(overlayRadius: 14),
                         activeTrackColor: AppTheme.primaryColor,
-                        inactiveTrackColor:
-                            Colors.white.withValues(alpha: 0.2),
+                        inactiveTrackColor: Colors.white.withValues(alpha: 0.2),
                         thumbColor: Colors.white,
                         overlayColor: Colors.white.withValues(alpha: 0.15),
                       ),
@@ -1024,296 +1026,315 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         backgroundColor: AppTheme.backgroundColor,
         body: Stack(
           children: [
-          CustomScrollView(
-            controller: _scrollController,
-            cacheExtent: 150,
-            slivers: [
-              _buildSliverAppBar(),
-              SliverToBoxAdapter(
-                child: Container(
-                  color: AppTheme.backgroundColor,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 20),
-                        _buildHeaderContent(),
-                        const SizedBox(height: 20),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 400),
-                          switchInCurve: Curves.easeOutCubic,
-                          switchOutCurve: Curves.easeInCubic,
-                          transitionBuilder: (child, animation) =>
-                              FadeTransition(
-                            opacity: animation,
-                            child: SlideTransition(
-                              position: Tween<Offset>(
-                                begin: const Offset(0, 0.05),
-                                end: Offset.zero,
-                              ).animate(animation),
+            CustomScrollView(
+              controller: _scrollController,
+              cacheExtent: 150,
+              slivers: [
+                _buildSliverAppBar(),
+                SliverToBoxAdapter(
+                  child: Container(
+                    color: AppTheme.backgroundColor,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 20),
+                          _buildHeaderContent(),
+                          const SizedBox(height: 20),
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 400),
+                            switchInCurve: Curves.easeOutCubic,
+                            switchOutCurve: Curves.easeInCubic,
+                            transitionBuilder: (child, animation) =>
+                                FadeTransition(
+                              opacity: animation,
+                              child: SlideTransition(
+                                position: Tween<Offset>(
+                                  begin: const Offset(0, 0.05),
+                                  end: Offset.zero,
+                                ).animate(animation),
+                                child: child,
+                              ),
+                            ),
+                            child: _isLoading
+                                ? Column(
+                                    key: const ValueKey('loading_overview'),
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      _buildShimmerBlock(
+                                          width: double.infinity, height: 14),
+                                      const SizedBox(height: 8),
+                                      _buildShimmerBlock(
+                                          width: double.infinity, height: 14),
+                                      const SizedBox(height: 8),
+                                      _buildShimmerBlock(
+                                          width: 200, height: 14),
+                                    ],
+                                  )
+                                : _buildOverview(),
+                          ),
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 450),
+                            switchInCurve: Curves.easeOutCubic,
+                            switchOutCurve: Curves.easeInCubic,
+                            transitionBuilder: (child, animation) =>
+                                FadeTransition(
+                              opacity: animation,
                               child: child,
                             ),
-                          ),
-                          child: _isLoading
-                              ? Column(
-                                  key: const ValueKey('loading_overview'),
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _buildShimmerBlock(
-                                        width: double.infinity, height: 14),
-                                    const SizedBox(height: 8),
-                                    _buildShimmerBlock(
-                                        width: double.infinity, height: 14),
-                                    const SizedBox(height: 8),
-                                    _buildShimmerBlock(width: 200, height: 14),
-                                  ],
-                                )
-                              : _buildOverview(),
-                        ),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 450),
-                          switchInCurve: Curves.easeOutCubic,
-                          switchOutCurve: Curves.easeInCubic,
-                          transitionBuilder: (child, animation) =>
-                              FadeTransition(
-                            opacity: animation,
-                            child: child,
-                          ),
-                          child: _isLoading
-                              ? Padding(
-                                  key: const ValueKey('loading_sections'),
-                                  padding: const EdgeInsets.only(top: 24),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      _buildShimmerBlock(
-                                          width: 150, height: 20),
-                                      const SizedBox(height: 12),
-                                      _buildShimmerBlock(
-                                          width: 170, height: 50),
-                                      const SizedBox(height: 24),
-                                      Row(
-                                        children: [
-                                          _buildShimmerBlock(
-                                              width: 120, height: 80),
-                                          const SizedBox(width: 12),
-                                          _buildShimmerBlock(
-                                              width: 120, height: 80),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              : RepaintBoundary(
-                                  child: Column(
-                                    key: const ValueKey('loaded_sections'),
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      if (_isTvShow) ...[
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                              top: 24, bottom: 8),
-                                          child: Text(
-                                            '${_details?.numberOfSeasons ?? 0} Seasons • ${_details?.numberOfEpisodes ?? 0} Episodes • ${_details?.status ?? 'N/A'}',
-                                            style: TextStyle(
-                                              color: Colors.white
-                                                  .withValues(alpha: 0.3),
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
-                                              letterSpacing: 1.2,
+                            child: _isLoading
+                                ? Padding(
+                                    key: const ValueKey('loading_sections'),
+                                    padding: const EdgeInsets.only(top: 24),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        _buildShimmerBlock(
+                                            width: 150, height: 20),
+                                        const SizedBox(height: 12),
+                                        _buildShimmerBlock(
+                                            width: 170, height: 50),
+                                        const SizedBox(height: 24),
+                                        Row(
+                                          children: [
+                                            _buildShimmerBlock(
+                                                width: 120, height: 80),
+                                            const SizedBox(width: 12),
+                                            _buildShimmerBlock(
+                                                width: 120, height: 80),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                : RepaintBoundary(
+                                    child: Column(
+                                      key: const ValueKey('loaded_sections'),
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        if (_isTvShow) ...[
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                                top: 24, bottom: 8),
+                                            child: Text(
+                                              '${_details?.numberOfSeasons ?? 0} Seasons • ${_details?.numberOfEpisodes ?? 0} Episodes • ${_details?.status ?? 'N/A'}',
+                                              style: TextStyle(
+                                                color: Colors.white
+                                                    .withValues(alpha: 0.3),
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                                letterSpacing: 1.2,
+                                              ),
                                             ),
                                           ),
-                                        ),
-                                        _buildTvSelector(),
-                                        const SizedBox(height: 24),
-                                        _buildDetailedInfo(),
-                                      ] else ...[
-                                        const SizedBox(height: 24),
-                                        _buildDetailedInfo(),
+                                          _buildTvSelector(),
+                                          const SizedBox(height: 24),
+                                          _buildDetailedInfo(),
+                                        ] else ...[
+                                          const SizedBox(height: 24),
+                                          _buildDetailedInfo(),
+                                        ],
                                       ],
-                                    ],
+                                    ),
                                   ),
-                                ),
-                        ),
-                        const SizedBox(height: 24),
-                        _buildCast(),
-                        const SizedBox(height: 24),
-                        _buildRecommendations(),
-                        const SizedBox(height: 24),
-                        _buildInfoCards(),
-                        const SizedBox(height: 12),
-                        _buildNextEpisodeBanner(),
-                        const SizedBox(height: 40),
+                          ),
+                          const SizedBox(height: 24),
+                          _buildCast(),
+                          const SizedBox(height: 24),
+                          _buildRecommendations(),
+                          const SizedBox(height: 24),
+                          _buildInfoCards(),
+                          const SizedBox(height: 12),
+                          _buildNextEpisodeBanner(),
+                          const SizedBox(height: 40),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            // Top Shadow Gradient for Status Bar
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: MediaQuery.of(context).padding.top + 80,
+              child: IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.8),
+                        Colors.black.withValues(alpha: 0.4),
+                        Colors.transparent,
                       ],
                     ),
                   ),
                 ),
               ),
-            ],
-          ),
-          // Top Shadow Gradient for Status Bar
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: MediaQuery.of(context).padding.top + 80,
-            child: IgnorePointer(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.8),
-                      Colors.black.withValues(alpha: 0.4),
-                      Colors.transparent,
-                    ],
+            ),
+            if (_trailerPreviewFullscreen && _trailerPreviewController != null)
+              Positioned.fill(
+                child: Material(
+                  color: Colors.black,
+                  child: StreamBuilder<Duration>(
+                    stream: _trailerPreviewPlayer!.stream.position,
+                    initialData: Duration.zero,
+                    builder: (context, posSnap) {
+                      return StreamBuilder<Duration>(
+                        stream: _trailerPreviewPlayer!.stream.duration,
+                        initialData: Duration.zero,
+                        builder: (context, durSnap) {
+                          final pos = posSnap.data ?? Duration.zero;
+                          final dur = durSnap.data ?? Duration.zero;
+                          final ended = dur.inMilliseconds > 0 &&
+                              pos.inMilliseconds >= (dur.inMilliseconds - 350);
+
+                          return GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: ended ? null : _toggleTrailerControls,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                // Video — fades out when ended
+                                AnimatedOpacity(
+                                  duration: const Duration(milliseconds: 500),
+                                  opacity: ended
+                                      ? 0.0
+                                      : (_trailerPreviewReady ? 1.0 : 0.0),
+                                  child: Video(
+                                    controller: _trailerPreviewController!,
+                                    fit: BoxFit.contain,
+                                    controls: (state) =>
+                                        const SizedBox.shrink(),
+                                  ),
+                                ),
+                                // Backdrop + replay — fades in when ended
+                                if (ended)
+                                  Positioned.fill(
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        CachedNetworkImage(
+                                          imageUrl: _trailerThumbUrl(),
+                                          fit: BoxFit.cover,
+                                        ),
+                                        Container(
+                                          color: Colors.black
+                                              .withValues(alpha: 0.55),
+                                        ),
+                                        Center(
+                                          child: Material(
+                                            color: Colors.transparent,
+                                            child: InkWell(
+                                              onTap: _replayTrailerPreview,
+                                              customBorder:
+                                                  const CircleBorder(),
+                                              child: Container(
+                                                width: 72,
+                                                height: 72,
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  color: Colors.black
+                                                      .withValues(alpha: 0.35),
+                                                  border: Border.all(
+                                                    color: Colors.white
+                                                        .withValues(alpha: 0.9),
+                                                    width: 2,
+                                                  ),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.replay_rounded,
+                                                  color: Colors.white,
+                                                  size: 34,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ).animate().fadeIn(duration: 400.ms),
+                                // Close + mute (always visible)
+                                Positioned(
+                                  top: MediaQuery.of(context).padding.top + 4,
+                                  left: 8,
+                                  right: 8,
+                                  child: Row(
+                                    children: [
+                                      Material(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.45),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                        child: InkWell(
+                                          onTap:
+                                              _toggleTrailerPreviewFullscreen,
+                                          borderRadius:
+                                              BorderRadius.circular(999),
+                                          child: const Padding(
+                                            padding: EdgeInsets.all(8),
+                                            child: Icon(
+                                                Icons
+                                                    .arrow_back_ios_new_rounded,
+                                                color: Colors.white,
+                                                size: 18),
+                                          ),
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      if (!ended)
+                                        Material(
+                                          color: Colors.black
+                                              .withValues(alpha: 0.45),
+                                          borderRadius:
+                                              BorderRadius.circular(999),
+                                          child: InkWell(
+                                            onTap: () {
+                                              _toggleTrailerPreviewMute();
+                                              _showTrailerControlsBriefly();
+                                            },
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                            child: Padding(
+                                              padding: const EdgeInsets.all(8),
+                                              child: Icon(
+                                                _trailerPreviewMuted
+                                                    ? Icons.volume_off_rounded
+                                                    : Icons.volume_up_rounded,
+                                                color: Colors.white,
+                                                size: 18,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                // Proper seekable controls (hidden when ended)
+                                if (!ended)
+                                  Positioned.fill(
+                                    child: _buildFullscreenTrailerControls(
+                                      position: pos,
+                                      duration: dur,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    },
                   ),
                 ),
               ),
-            ),
-          ),
-          if (_trailerPreviewFullscreen && _trailerPreviewController != null)
-            Positioned.fill(
-              child: Material(
-                color: Colors.black,
-                child: StreamBuilder<Duration>(
-                  stream: _trailerPreviewPlayer!.stream.position,
-                  initialData: Duration.zero,
-                  builder: (context, posSnap) {
-                    return StreamBuilder<Duration>(
-                      stream: _trailerPreviewPlayer!.stream.duration,
-                      initialData: Duration.zero,
-                      builder: (context, durSnap) {
-                        final pos = posSnap.data ?? Duration.zero;
-                        final dur = durSnap.data ?? Duration.zero;
-                        final ended = dur.inMilliseconds > 0 &&
-                            pos.inMilliseconds >= (dur.inMilliseconds - 350);
-
-                        return GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: ended ? null : _toggleTrailerControls,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              // Video — fades out when ended
-                              AnimatedOpacity(
-                                duration: const Duration(milliseconds: 500),
-                                opacity: ended ? 0.0 : (_trailerPreviewReady ? 1.0 : 0.0),
-                                child: Video(
-                                  controller: _trailerPreviewController!,
-                                  fit: BoxFit.contain,
-                                  controls: (state) => const SizedBox.shrink(),
-                                ),
-                              ),
-                              // Backdrop + replay — fades in when ended
-                              if (ended)
-                                Positioned.fill(
-                                  child: Stack(
-                                    fit: StackFit.expand,
-                                    children: [
-                                      CachedNetworkImage(
-                                        imageUrl: _trailerThumbUrl(),
-                                        fit: BoxFit.cover,
-                                      ),
-                                      Container(
-                                        color: Colors.black.withValues(alpha: 0.55),
-                                      ),
-                                      Center(
-                                        child: Material(
-                                          color: Colors.transparent,
-                                          child: InkWell(
-                                            onTap: _replayTrailerPreview,
-                                            customBorder: const CircleBorder(),
-                                            child: Container(
-                                              width: 72,
-                                              height: 72,
-                                              decoration: BoxDecoration(
-                                                shape: BoxShape.circle,
-                                                color: Colors.black.withValues(alpha: 0.35),
-                                                border: Border.all(
-                                                  color: Colors.white.withValues(alpha: 0.9),
-                                                  width: 2,
-                                                ),
-                                              ),
-                                              child: const Icon(
-                                                Icons.replay_rounded,
-                                                color: Colors.white,
-                                                size: 34,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ).animate().fadeIn(duration: 400.ms),
-                              // Close + mute (always visible)
-                              Positioned(
-                                top: MediaQuery.of(context).padding.top + 4,
-                                left: 8,
-                                right: 8,
-                                child: Row(
-                                  children: [
-                                    Material(
-                                      color: Colors.black.withValues(alpha: 0.45),
-                                      borderRadius: BorderRadius.circular(999),
-                                      child: InkWell(
-                                        onTap: _toggleTrailerPreviewFullscreen,
-                                        borderRadius: BorderRadius.circular(999),
-                                        child: const Padding(
-                                          padding: EdgeInsets.all(8),
-                                          child: Icon(Icons.arrow_back_ios_new_rounded,
-                                              color: Colors.white, size: 18),
-                                        ),
-                                      ),
-                                    ),
-                                    const Spacer(),
-                                    if (!ended)
-                                      Material(
-                                        color: Colors.black.withValues(alpha: 0.45),
-                                        borderRadius: BorderRadius.circular(999),
-                                        child: InkWell(
-                                          onTap: () {
-                                            _toggleTrailerPreviewMute();
-                                            _showTrailerControlsBriefly();
-                                          },
-                                          borderRadius: BorderRadius.circular(999),
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(8),
-                                            child: Icon(
-                                              _trailerPreviewMuted
-                                                  ? Icons.volume_off_rounded
-                                                  : Icons.volume_up_rounded,
-                                              color: Colors.white,
-                                              size: 18,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              // Proper seekable controls (hidden when ended)
-                              if (!ended)
-                                Positioned.fill(
-                                  child: _buildFullscreenTrailerControls(
-                                    position: pos,
-                                    duration: dur,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-            ),
           ],
         ),
       ),
@@ -1539,21 +1560,23 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            if (!_isLoading && _item.rating != null) Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: _buildStarRating(double.tryParse(_item.rating!) ?? 0),
-            ),
-            if (!_isLoading && _item.rating != null) const SizedBox(width: 8),
-            if (!_isLoading && _item.rating != null) Text(
-              _item.rating!,
-              style: GoogleFonts.outfit(
-                color: Colors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.5,
+            if (!_isLoading && _item.rating != null)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: _buildStarRating(double.tryParse(_item.rating!) ?? 0),
               ),
-            ),
+            if (!_isLoading && _item.rating != null) const SizedBox(width: 8),
+            if (!_isLoading && _item.rating != null)
+              Text(
+                _item.rating!,
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                ),
+              ),
             const SizedBox(width: 10),
             Container(
               width: 1.5,
@@ -1799,38 +1822,13 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                     _NetflixLikeRatingButton(mediaId: _item.id),
                     const SizedBox(width: 8),
                     // Download button
-                    Container(
-                      height: 54,
-                      width: 54,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.35),
-                            blurRadius: 12,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        borderRadius: BorderRadius.circular(16),
-                        child: InkWell(
-                          onTap: () {
-                            HapticFeedback.mediumImpact();
-                            _showDownloadSourceSelector();
-                          },
-                          borderRadius: BorderRadius.circular(14),
-                          child: Center(
-                            child: HugeIcon(
-                              icon: HugeIcons.strokeRoundedDownload04,
-                              color: Colors.white.withValues(alpha: 0.9),
-                              size: 22.0,
-                            ),
-                          ),
-                        ),
-                      ),
+                    MediaQuickActionButton(
+                      tooltip: 'Download',
+                      hugeIcon: HugeIcons.strokeRoundedDownload04,
+                      onTap: () {
+                        HapticFeedback.mediumImpact();
+                        _showDownloadSourceSelector();
+                      },
                     ),
                     const SizedBox(width: 8),
                     Builder(
@@ -1838,58 +1836,23 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                         final provider = context.watch<AppProvider>();
                         final isWatchlisted = provider.isInWatchlist(_item.id);
 
-                        return AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          height: 54,
-                          width: 54,
-                          decoration: BoxDecoration(
-                            color: isWatchlisted
-                                ? AppTheme.primaryColor
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isWatchlisted
-                                  ? Colors.transparent
-                                  : Colors.white.withValues(alpha: 0.08),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.35),
-                                blurRadius: 12,
-                                offset: const Offset(0, 6),
-                              ),
-                            ],
-                          ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: Tooltip(
-                              message: isWatchlisted
-                                  ? 'Remove from Watchlist'
-                                  : 'Save to Watchlist',
-                              child: InkWell(
-                                onTap: () {
-                                  HapticFeedback.mediumImpact();
-                                  provider.toggleWatchlist(_item);
-                                },
-                                borderRadius: BorderRadius.circular(14),
-                                child: Center(
-                                  child: AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 300),
-                                    child: HugeIcon(
-                                      icon: isWatchlisted
-                                          ? HugeIcons.strokeRoundedBookmark03
-                                          : HugeIcons.strokeRoundedBookmark02,
-                                      key: ValueKey(isWatchlisted),
-                                      color: isWatchlisted
-                                          ? Colors.white
-                                          : Colors.white.withValues(alpha: 0.9),
-                                      size: 22.0,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+                        return MediaQuickActionButton(
+                          tooltip: isWatchlisted
+                              ? 'Remove from Watchlist'
+                              : 'Save to Watchlist',
+                          isSelected: isWatchlisted,
+                          hugeIcon: isWatchlisted
+                              ? HugeIcons.strokeRoundedBookmark03
+                              : HugeIcons.strokeRoundedBookmark02,
+                          onTap: () {
+                            HapticFeedback.mediumImpact();
+                            toggleWatchlistWithFeedback(
+                              context,
+                              provider,
+                              _item,
+                              wasInWatchlist: isWatchlisted,
+                            );
+                          },
                         );
                       },
                     ),
@@ -1909,67 +1872,10 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
       return const SizedBox.shrink();
     }
 
-    final isLong = description.length > 200;
-
-    return GestureDetector(
-      onTap: isLong
-          ? () => setState(() => _overviewExpanded = !_overviewExpanded)
-          : null,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AnimatedCrossFade(
-            duration: const Duration(milliseconds: 300),
-            crossFadeState: _overviewExpanded
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
-            firstChild: Text(
-              isLong ? '${description.substring(0, 200)}...' : description,
-              style: GoogleFonts.outfit(
-                color: Colors.white.withValues(alpha: 0.7),
-                fontSize: 13.5,
-                height: 1.7,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0.05,
-              ),
-            ),
-            secondChild: Text(
-              description,
-              style: GoogleFonts.outfit(
-                color: Colors.white.withValues(alpha: 0.7),
-                fontSize: 13.5,
-                height: 1.7,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0.05,
-              ),
-            ),
-          ),
-          if (isLong)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Row(
-                children: [
-                  Text(
-                    _overviewExpanded ? 'Show Less' : 'Read More',
-                    style: GoogleFonts.outfit(
-                      color: AppTheme.primaryColor,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  AnimatedRotation(
-                    turns: _overviewExpanded ? 0.5 : 0.0,
-                    duration: const Duration(milliseconds: 300),
-                    child: Icon(Icons.keyboard_arrow_down_rounded,
-                        size: 14, color: AppTheme.primaryColor),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
+    return ExpandableOverviewText(
+      description: description,
+      expanded: _overviewExpanded,
+      onToggle: () => setState(() => _overviewExpanded = !_overviewExpanded),
     );
   }
 
@@ -2538,7 +2444,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                               _showDownloadSourceSelector(episode: episode);
                             },
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 12),
                               child: Icon(
                                 Icons.download_rounded,
                                 size: 18,
@@ -3028,202 +2935,19 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
 
   Widget _buildInfoCard(String label, IconData icon, String value,
       {Color? color}) {
-    return Container(
-      margin: const EdgeInsets.only(right: 12),
-      padding: const EdgeInsets.all(16),
-      width: 140,
-      height: 100,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 18, color: color ?? AppTheme.primaryColor),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.6),
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: GoogleFonts.outfit(
-              color: color ?? Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
+    return MediaInfoStatCard(
+      label: label,
+      icon: icon,
+      value: value,
+      color: color,
     );
   }
 
   Widget _buildCast() {
-    if (_cast.isEmpty && !_loadingCast) return const SizedBox.shrink();
-
-    return RepaintBoundary(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader('CAST', 'Starring'),
-          SizedBox(
-            height: 140,
-            child: _loadingCast
-                ? ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: 5,
-                    separatorBuilder: (_, __) => const SizedBox(width: 16),
-                    itemBuilder: (_, __) => Column(
-                      children: [
-                        Shimmer.fromColors(
-                          baseColor: Colors.white.withValues(alpha: 0.05),
-                          highlightColor: Colors.white.withValues(alpha: 0.1),
-                          child: Container(
-                            width: 90,
-                            height: 90,
-                            decoration: const BoxDecoration(
-                              color: Colors.black,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Shimmer.fromColors(
-                          baseColor: Colors.white.withValues(alpha: 0.05),
-                          highlightColor: Colors.white.withValues(alpha: 0.1),
-                          child: Container(
-                            width: 90,
-                            height: 12,
-                            decoration: BoxDecoration(
-                              color: Colors.black,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.separated(
-                    physics: const BouncingScrollPhysics(),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _cast.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 16),
-                    itemBuilder: (context, index) {
-                      final member = _cast[index];
-                      final delay = (index * 50).clamp(0, 500);
-                      return Animate(
-                        effects: [
-                          FadeEffect(duration: 400.ms, delay: delay.ms),
-                          SlideEffect(
-                            begin: const Offset(0.2, 0),
-                            duration: 400.ms,
-                            delay: delay.ms,
-                            curve: Curves.easeOutQuad,
-                          ),
-                        ],
-                        child: GestureDetector(
-                          onTap: () => _showCastModal(member),
-                          child: SizedBox(
-                            width: 90,
-                            child: Column(
-                              children: [
-                                Container(
-                                  width: 90,
-                                  height: 90,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.15),
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  child: ClipOval(
-                                    child: member.fullProfileUrl.isNotEmpty
-                                        ? CachedNetworkImage(
-                                            imageUrl: member.fullProfileUrl,
-                                            fit: BoxFit.cover,
-                                            placeholder: (_, __) => Container(
-                                              color: Colors.white
-                                                  .withValues(alpha: 0.05),
-                                            ),
-                                            errorWidget: (_, __, ___) =>
-                                                Container(
-                                              color: Colors.white
-                                                  .withValues(alpha: 0.05),
-                                              child: Icon(
-                                                Icons.person,
-                                                color: Colors.white
-                                                    .withValues(alpha: 0.3),
-                                                size: 40,
-                                              ),
-                                            ),
-                                          )
-                                        : Container(
-                                            color: Colors.white
-                                                .withValues(alpha: 0.05),
-                                            child: Icon(
-                                              Icons.person,
-                                              color: Colors.white
-                                                  .withValues(alpha: 0.3),
-                                              size: 40,
-                                            ),
-                                          ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  member.name,
-                                  maxLines: 1,
-                                  textAlign: TextAlign.center,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: GoogleFonts.outfit(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    height: 1.1,
-                                  ),
-                                ),
-                                if (member.character != null) ...[
-                                  const SizedBox(height: 1),
-                                  Text(
-                                    member.character!,
-                                    maxLines: 1,
-                                    textAlign: TextAlign.center,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: GoogleFonts.outfit(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.4),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
+    return CastCarouselSection(
+      isLoading: _loadingCast,
+      cast: _cast,
+      onTapMember: _showCastModal,
     );
   }
 
@@ -3255,189 +2979,55 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
   }
 
   Widget _buildRecommendations() {
-    if (_recommendations.isEmpty && !_loadingRecommendations) {
-      return const SizedBox.shrink();
-    }
+    return RecommendationsCarouselSection(
+      isLoading: _loadingRecommendations,
+      recommendations: _recommendations,
+      onTapRecommendation: (media) {
+        HapticFeedback.lightImpact();
+        final navId = (media.id == 0 && media.originalTitle != null)
+            ? media.originalTitle!
+            : media.id.toString();
 
-    return RepaintBoundary(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader('MORE LIKE THIS', 'Similar titles'),
-          SizedBox(
-            height: 230,
-            child: _loadingRecommendations
-                ? ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: 4,
-                    separatorBuilder: (_, __) => const SizedBox(width: 12),
-                    itemBuilder: (_, __) => Shimmer.fromColors(
-                      baseColor: Colors.white.withValues(alpha: 0.05),
-                      highlightColor: Colors.white.withValues(alpha: 0.1),
-                      child: Container(
-                        width: 120,
-                        decoration: BoxDecoration(
-                          color: Colors.black,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  )
-                : ListView.separated(
-                    physics: const BouncingScrollPhysics(),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _recommendations.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 12),
-                    itemBuilder: (context, index) {
-                      final media = _recommendations[index];
-                      return InkWell(
-                        onTap: () {
-                          HapticFeedback.lightImpact();
-                          final navId =
-                              (media.id == 0 && media.originalTitle != null)
-                                  ? media.originalTitle!
-                                  : media.id.toString();
-
-                          Navigator.push(
-                            context,
-                            PageRouteBuilder(
-                              transitionDuration:
-                                  const Duration(milliseconds: 500),
-                              reverseTransitionDuration:
-                                  const Duration(milliseconds: 400),
-                              pageBuilder:
-                                  (context, animation, secondaryAnimation) =>
-                                      MediaInfoScreen(
-                                item: ImdbSearchResult(
-                                  id: navId,
-                                  title: media.displayTitle,
-                                  year: media.displayDate.isNotEmpty
-                                      ? media.displayDate.split('-').first
-                                      : '',
-                                  posterUrl:
-                                      upgradePosterQuality(media.fullPosterUrl),
-                                  kind: media.mediaType == 'movie'
-                                      ? 'movie'
-                                      : 'tv',
-                                  rating: media.voteAverage.toStringAsFixed(1),
-                                  description: media.overview,
-                                  backdropUrl: media.fullBackdropUrl,
-                                ),
-                              ),
-                              transitionsBuilder: (context, animation,
-                                  secondaryAnimation, child) {
-                                final curved = CurvedAnimation(
-                                  parent: animation,
-                                  curve: Curves.easeOutCubic,
-                                );
-                                return FadeTransition(
-                                  opacity: curved,
-                                  child: SlideTransition(
-                                    position: Tween<Offset>(
-                                      begin: const Offset(0.0, 0.05),
-                                      end: Offset.zero,
-                                    ).animate(curved),
-                                    child: child,
-                                  ),
-                                );
-                              },
-                            ),
-                          );
-                        },
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          width: 120,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(8),
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                Colors.white.withValues(alpha: 0.08),
-                                Colors.white.withValues(alpha: 0.03),
-                              ],
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                blurRadius: 6,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              AspectRatio(
-                                aspectRatio: 2 / 3,
-                                child: CachedNetworkImage(
-                                  imageUrl: media.fullPosterUrl,
-                                  fit: BoxFit.cover,
-                                  width: double.infinity,
-                                  placeholder: (_, __) => Container(
-                                    color: Colors.white.withValues(alpha: 0.05),
-                                  ),
-                                  errorWidget: (_, __, ___) => Container(
-                                    color: Colors.white.withValues(alpha: 0.05),
-                                    child: Icon(
-                                      Icons.movie,
-                                      color:
-                                          Colors.white.withValues(alpha: 0.3),
-                                      size: 40,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              SizedBox(
-                                height: 49,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(10),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          media.displayTitle,
-                                          maxLines: 1,
-                                          textAlign: TextAlign.start,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: GoogleFonts.outfit(
-                                            color: Colors.white,
-                                            fontSize: 10.5,
-                                            fontWeight: FontWeight.w700,
-                                            height: 1.2,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        media.displayDate.isNotEmpty
-                                            ? media.displayDate.split('-').first
-                                            : 'N/A',
-                                        style: GoogleFonts.outfit(
-                                          color: Colors.white
-                                              .withValues(alpha: 0.5),
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 500),
+            reverseTransitionDuration: const Duration(milliseconds: 400),
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                MediaInfoScreen(
+              item: ImdbSearchResult(
+                id: navId,
+                title: media.displayTitle,
+                year: media.displayDate.isNotEmpty
+                    ? media.displayDate.split('-').first
+                    : '',
+                posterUrl: upgradePosterQuality(media.fullPosterUrl),
+                kind: media.mediaType == 'movie' ? 'movie' : 'tv',
+                rating: media.voteAverage.toStringAsFixed(1),
+                description: media.overview,
+                backdropUrl: media.fullBackdropUrl,
+              ),
+            ),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+              final curved = CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+              );
+              return FadeTransition(
+                opacity: curved,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.0, 0.05),
+                    end: Offset.zero,
+                  ).animate(curved),
+                  child: child,
+                ),
+              );
+            },
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -3858,7 +3448,10 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: Text(
                 'No download sources available for this title',
-                style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                style: GoogleFonts.outfit(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600),
               ),
             ),
           );
@@ -3875,7 +3468,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.download_rounded, size: 14, color: Colors.white54),
+                      const Icon(Icons.download_rounded,
+                          size: 14, color: Colors.white54),
                       const SizedBox(width: 6),
                       Text(
                         'DOWNLOAD FROM',
@@ -3894,16 +3488,21 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                     error: (_, __) => Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: Text('Could not load sources',
-                          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
+                          style: GoogleFonts.outfit(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600)),
                     ),
                     data: (data) {
                       final tiles = _providerOrder.map((providerKey) {
                         final result = data[providerKey];
-                        final displayName = _providerDisplayNames[providerKey] ?? providerKey;
+                        final displayName =
+                            _providerDisplayNames[providerKey] ?? providerKey;
                         final isAvailable = result != null &&
                             (result.sources.isNotEmpty || result.isTg);
 
-                        if (!isAvailable) return _buildSourceOptionDisabled(displayName);
+                        if (!isAvailable)
+                          return _buildSourceOptionDisabled(displayName);
 
                         if (providerKey == 'tg') {
                           return _buildDownloadOption(
@@ -3912,7 +3511,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                             () {
                               if (episode != null) {
                                 _downloadEpisodeTg(episode);
-                              } else if (seasonNumber != null && episodeNumber != null) {
+                              } else if (seasonNumber != null &&
+                                  episodeNumber != null) {
                                 _downloadEpisodeTg(RiveStreamEpisode(
                                   id: 0,
                                   seasonNumber: seasonNumber,
@@ -3941,7 +3541,9 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                       return Wrap(
                         spacing: 10,
                         runSpacing: 8,
-                        children: tiles.map((t) => SizedBox(width: 140, child: t)).toList(),
+                        children: tiles
+                            .map((t) => SizedBox(width: 140, child: t))
+                            .toList(),
                       );
                     },
                   ),
@@ -3968,7 +3570,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.25)),
+            border: Border.all(
+                color: AppTheme.primaryColor.withValues(alpha: 0.25)),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -4001,7 +3604,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
   }) async {
     final sources = cachedResult.sources;
     if (sources.isEmpty) {
-      _showSnackBar('No downloadable sources from this provider', isError: true);
+      _showSnackBar('No downloadable sources from this provider',
+          isError: true);
       return;
     }
 
@@ -4013,8 +3617,10 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
 
     String ext = 'mp4';
     final urlLower = source.url.toLowerCase().split('?').first;
-    if (urlLower.endsWith('.m3u8') || urlLower.endsWith('.m3u')) ext = 'ts';
-    else if (urlLower.endsWith('.mkv')) ext = 'mkv';
+    if (urlLower.endsWith('.m3u8') || urlLower.endsWith('.m3u')) {
+      ext = 'ts';
+    } else if (urlLower.endsWith('.mkv'))
+      ext = 'mkv';
     else if (urlLower.endsWith('.webm')) ext = 'webm';
 
     final epTag = (isTv && sNum != null && eNum != null)
@@ -4030,7 +3636,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     };
 
     final cleanFilename = filename.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-    final downloadProvider = provider_pkg.Provider.of<DownloadProvider>(context, listen: false);
+    final downloadProvider =
+        provider_pkg.Provider.of<DownloadProvider>(context, listen: false);
     downloadProvider.startDownload(
       url: source.url,
       filename: cleanFilename,
@@ -4041,7 +3648,9 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         content: Row(children: [
           const Icon(Icons.download_rounded, color: Colors.white, size: 16),
           const SizedBox(width: 8),
-          Expanded(child: Text('Downloading "${cleanFilename.length > 40 ? '${cleanFilename.substring(0, 40)}...' : cleanFilename}"')),
+          Expanded(
+              child: Text(
+                  'Downloading "${cleanFilename.length > 40 ? '${cleanFilename.substring(0, 40)}...' : cleanFilename}"')),
         ]),
         backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.9),
         behavior: SnackBarBehavior.floating,
@@ -4058,7 +3667,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     final tmdbIdInt = int.tryParse(_item.id);
     if (imdbId == null || imdbId.isEmpty) {
       if (tmdbIdInt != null) {
-        imdbId = await RiveStreamService().getImdbIdFromTmdbId(tmdbIdInt, isMovie: true);
+        imdbId = await RiveStreamService()
+            .getImdbIdFromTmdbId(tmdbIdInt, isMovie: true);
       }
     }
     if (imdbId == null || imdbId.isEmpty) {
@@ -4131,7 +3741,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         isTv: true,
         season: episode.seasonNumber,
         episode: episode.episodeNumber,
-        title: '${widget.item.title} - S${episode.seasonNumber}E${episode.episodeNumber}',
+        title:
+            '${widget.item.title} - S${episode.seasonNumber}E${episode.episodeNumber}',
         tmdbId: tmdbIdInt,
         mediaItem: widget.item,
         downloadMode: true,
@@ -4597,42 +4208,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
   }
 
   Widget _buildSectionHeader(String title, String? subtitle) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 0, bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: 4,
-                height: 20,
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryColor,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
+    return MediaSectionHeader(title: title, subtitle: subtitle);
   }
 
   void _showGenresDialog() {
@@ -5055,8 +4631,7 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
         pageBuilder: (context, animation, secondaryAnimation) => PlayerScreen(
           url: '',
           urlResolver: () async {
-            final stream =
-                await service.getMovieStreamByMessageId(messageId);
+            final stream = await service.getMovieStreamByMessageId(messageId);
             if (stream == null) return null;
             return service.getStreamUrl(stream.url, stream.hash);
           },
@@ -5330,7 +4905,9 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          widget.downloadMode ? 'SELECT QUALITY TO DOWNLOAD' : 'SELECT STREAM QUALITY',
+          widget.downloadMode
+              ? 'SELECT QUALITY TO DOWNLOAD'
+              : 'SELECT STREAM QUALITY',
           style: GoogleFonts.outfit(
             color: Colors.white.withValues(alpha: 0.3),
             fontSize: 11,
@@ -5416,8 +4993,7 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
                                 Text(
                                   '${q.files}',
                                   style: GoogleFonts.outfit(
-                                    color:
-                                        Colors.white.withValues(alpha: 0.35),
+                                    color: Colors.white.withValues(alpha: 0.35),
                                     fontSize: 10,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -5426,8 +5002,7 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
                                 Icon(
                                   Icons.chevron_right_rounded,
                                   size: 16,
-                                  color:
-                                      Colors.white.withValues(alpha: 0.35),
+                                  color: Colors.white.withValues(alpha: 0.35),
                                 ),
                               ],
                             ),
@@ -5499,12 +5074,18 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
     final url = service.getStreamUrl(stream.url, stream.hash);
     final label = qualityLabel ?? stream.quality;
     final ext = file.name.contains('.') ? file.name.split('.').last : 'mp4';
-    final filename = '${widget.title}${label.isNotEmpty ? ' - $label' : ''} (${widget.season != null ? 'S${widget.season!.toString().padLeft(2, '0')}E${widget.episode.toString().padLeft(2, '0')}' : ''}).$ext';
+    final filename =
+        '${widget.title}${label.isNotEmpty ? ' - $label' : ''} (${widget.season != null ? 'S${widget.season!.toString().padLeft(2, '0')}E${widget.episode.toString().padLeft(2, '0')}' : ''}).$ext';
     _startDownload(url: url, filename: filename, totalSize: file.fileSize);
   }
 
-  void _startDownload({required String url, required String filename, int? totalSize, Map<String, String>? headers}) {
-    final downloadProvider = provider_pkg.Provider.of<DownloadProvider>(context, listen: false);
+  void _startDownload(
+      {required String url,
+      required String filename,
+      int? totalSize,
+      Map<String, String>? headers}) {
+    final downloadProvider =
+        provider_pkg.Provider.of<DownloadProvider>(context, listen: false);
     downloadProvider.startDownload(
       url: url,
       filename: filename.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_'),
@@ -5518,7 +5099,9 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
           children: [
             const Icon(Icons.download_rounded, color: Colors.white, size: 16),
             const SizedBox(width: 8),
-            Expanded(child: Text('Downloading "${filename.length > 40 ? '${filename.substring(0, 40)}...' : filename}"')),
+            Expanded(
+                child: Text(
+                    'Downloading "${filename.length > 40 ? '${filename.substring(0, 40)}...' : filename}"')),
           ],
         ),
         backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.9),
@@ -5638,10 +5221,12 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
                     ),
                   const Spacer(),
                   GestureDetector(
-                    onTap: () => _downloadTgFile(file, qualityLabel: _selectedQuality?.label),
+                    onTap: () => _downloadTgFile(file,
+                        qualityLabel: _selectedQuality?.label),
                     child: const Padding(
                       padding: EdgeInsets.only(right: 12),
-                      child: Icon(Icons.download_rounded, color: Colors.white38, size: 20),
+                      child: Icon(Icons.download_rounded,
+                          color: Colors.white38, size: 20),
                     ),
                   ),
                   const Icon(Icons.play_circle_fill_rounded,

@@ -71,8 +71,11 @@ final videoSourcesProvider = AsyncNotifierProvider.family<
     Map<String, ProviderSourceResult>,
     VideoSourceKey>(VideoSourcesNotifier.new);
 
-class VideoSourcesNotifier extends FamilyAsyncNotifier<
-    Map<String, ProviderSourceResult>, VideoSourceKey> {
+class VideoSourcesNotifier
+    extends AsyncNotifier<Map<String, ProviderSourceResult>> {
+  VideoSourcesNotifier(this.key);
+
+  final VideoSourceKey key;
   final _videoSourceService = VideoSourceService();
   final _kissKhService = KissKhService();
   final _vidLinkService = VidLinkService();
@@ -80,7 +83,7 @@ class VideoSourcesNotifier extends FamilyAsyncNotifier<
   final _tgService = TgService();
 
   @override
-  Future<Map<String, ProviderSourceResult>> build(VideoSourceKey key) async {
+  Future<Map<String, ProviderSourceResult>> build() async {
     final results = <String, ProviderSourceResult>{};
 
     try {
@@ -320,86 +323,92 @@ final nextEpisodeProvider =
   NextEpisodeNotifier.new,
 );
 
-class NextEpisodeNotifier extends FamilyAsyncNotifier<(int, int), String> {
+class NextEpisodeNotifier extends AsyncNotifier<(int, int)> {
+  NextEpisodeNotifier(this.tmdbId);
+
+  final String tmdbId;
+
   @override
-  Future<(int, int)> build(String tmdbId) async {
+  Future<(int, int)> build() async {
     // Placeholder: actual implementation would:
     // 1. Read AppProvider settings for pos_tmdb_{id}_s{S}_e{E}
     // 2. Find last watched episode
     // 3. Return (nextSeason, nextEpisode)
-  // For now, default to S1E1
-  return (1, 1);
- }
+    // For now, default to S1E1
+    return (1, 1);
+  }
 }
 
 // ─── Cache Helper Functions ──────────────────────────────────────────────────
 
 class CacheHelper {
- static Future<bool> isStale(String cacheKey, {int expiryHours = cacheExpiryHours}) async {
-   try {
-     final prefs = await SharedPreferences.getInstance();
-     final timestamp = prefs.getInt('${cacheKey}_timestamp');
-     if (timestamp == null) return true;
+  static Future<bool> isStale(String cacheKey,
+      {int expiryHours = cacheExpiryHours}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final timestamp = prefs.getInt('${cacheKey}_timestamp');
+      if (timestamp == null) return true;
 
-     final storedTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
-     final now = DateTime.now();
-     final difference = now.difference(storedTime).inHours;
+      final storedTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
+      final now = DateTime.now();
+      final difference = now.difference(storedTime).inHours;
 
-     final isDataStale = difference >= expiryHours;
-     return isDataStale;
-   } catch (e) {
-     debugPrint('Error checking cache staleness: $e');
-     return true;
-   }
- }
+      final isDataStale = difference >= expiryHours;
+      return isDataStale;
+    } catch (e) {
+      debugPrint('Error checking cache staleness: $e');
+      return true;
+    }
+  }
 
- static Future<void> saveToCache(String cacheKey, String data, {bool isImage = false}) async {
-   try {
-     final prefs = await SharedPreferences.getInstance();
-     await prefs.setString(cacheKey, data);
-     await prefs.setInt(
-       '${cacheKey}_timestamp',
-       DateTime.now().millisecondsSinceEpoch,
-     );
-     debugPrint('Cache saved: $cacheKey');
-   } catch (e) {
-     debugPrint('Failed to save cache: $e');
-   }
- }
+  static Future<void> saveToCache(String cacheKey, String data,
+      {bool isImage = false}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(cacheKey, data);
+      await prefs.setInt(
+        '${cacheKey}_timestamp',
+        DateTime.now().millisecondsSinceEpoch,
+      );
+      debugPrint('Cache saved: $cacheKey');
+    } catch (e) {
+      debugPrint('Failed to save cache: $e');
+    }
+  }
 
- static Future<String?> getFromCache(String cacheKey) async {
-   try {
-     final prefs = await SharedPreferences.getInstance();
-     final isExpired = await isStale(cacheKey);
+  static Future<String?> getFromCache(String cacheKey) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final isExpired = await isStale(cacheKey);
 
-     if (isExpired) {
-       await prefs.remove('${cacheKey}');
-       await prefs.remove('${cacheKey}_timestamp');
-       debugPrint('Cache expired and removed: $cacheKey');
-       return null;
-     }
+      if (isExpired) {
+        await prefs.remove(cacheKey);
+        await prefs.remove('${cacheKey}_timestamp');
+        debugPrint('Cache expired and removed: $cacheKey');
+        return null;
+      }
 
-     final data = prefs.getString(cacheKey);
-     if (data != null) {
-       debugPrint('Retrieved from cache: $cacheKey');
-     }
-     return data;
-   } catch (e) {
-     debugPrint('Error getting from cache: $e');
-     return null;
-   }
- }
+      final data = prefs.getString(cacheKey);
+      if (data != null) {
+        debugPrint('Retrieved from cache: $cacheKey');
+      }
+      return data;
+    } catch (e) {
+      debugPrint('Error getting from cache: $e');
+      return null;
+    }
+  }
 
- static Future<void> invalidateCache(String cacheKey) async {
-   try {
-     final prefs = await SharedPreferences.getInstance();
-     await prefs.remove(cacheKey);
-     await prefs.remove('${cacheKey}_timestamp');
-     debugPrint('Cache invalidated: $cacheKey');
-   } catch (e) {
-     debugPrint('Failed to invalidate cache: $e');
-   }
- }
+  static Future<void> invalidateCache(String cacheKey) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(cacheKey);
+      await prefs.remove('${cacheKey}_timestamp');
+      debugPrint('Cache invalidated: $cacheKey');
+    } catch (e) {
+      debugPrint('Failed to invalidate cache: $e');
+    }
+  }
 }
 
 // ─── Media Details Provider (with 24hr cache) ──────────────────────────────
@@ -417,82 +426,87 @@ class MediaDetailsState {
   bool get hasData => details != null;
 }
 
-final mediaDetailsProvider = AsyncNotifierProvider.family<MediaDetailsNotifier, MediaDetailsState, (String, bool)>(
- MediaDetailsNotifier.new,
+final mediaDetailsProvider = AsyncNotifierProvider.family<MediaDetailsNotifier,
+    MediaDetailsState, (String, bool)>(
+  MediaDetailsNotifier.new,
 );
 
-class MediaDetailsNotifier extends FamilyAsyncNotifier<MediaDetailsState, (String, bool)> {
- final _riveService = RiveStreamService();
+class MediaDetailsNotifier extends AsyncNotifier<MediaDetailsState> {
+  MediaDetailsNotifier(this.params);
 
- @override
- Future<MediaDetailsState> build((String, bool) params) async {
-   final (id, isMovie) = params;
-   final isTmdb = int.tryParse(id) != null;
-   String tmdbId = id;
+  final (String, bool) params;
+  final _riveService = RiveStreamService();
 
-   // Try cache first
-   if (isTmdb) {
-     final cacheKey = 'media_details_${isMovie ? "movie" : "tv"}_$tmdbId';
-     final cachedData = await CacheHelper.getFromCache(cacheKey);
+  @override
+  Future<MediaDetailsState> build() async {
+    final (id, isMovie) = params;
+    final isTmdb = int.tryParse(id) != null;
+    String tmdbId = id;
 
-     if (cachedData != null) {
-       try {
-         final Map<String, dynamic> json = jsonDecode(cachedData);
-         final cachedDetails = RiveStreamMediaDetails.fromJson(json);
-         return MediaDetailsState(details: cachedDetails, fromCache: true);
-       } catch (e) {
-         debugPrint('Failed to parse cached data: $e');
-         await CacheHelper.invalidateCache(cacheKey);
-       }
-     }
+    // Try cache first
+    if (isTmdb) {
+      final cacheKey = 'media_details_${isMovie ? "movie" : "tv"}_$tmdbId';
+      final cachedData = await CacheHelper.getFromCache(cacheKey);
 
-     // Cache miss or stale, fetch from API
-     try {
-       final tmdbIdInt = int.parse(tmdbId);
-       final details = await _riveService.getMediaDetails(
-         tmdbIdInt,
-         isMovie: isMovie,
-       );
-
-       // Cache the fresh data
-       final cacheKey = 'media_details_${isMovie ? "movie" : "tv"}_$tmdbId';
-       if (details != null) {
+      if (cachedData != null) {
         try {
-          await CacheHelper.saveToCache(cacheKey, jsonEncode(details.toJson()));
-        } catch (_) {
-          // Silently fail cache save if toJson not available
+          final Map<String, dynamic> json = jsonDecode(cachedData);
+          final cachedDetails = RiveStreamMediaDetails.fromJson(json);
+          return MediaDetailsState(details: cachedDetails, fromCache: true);
+        } catch (e) {
+          debugPrint('Failed to parse cached data: $e');
+          await CacheHelper.invalidateCache(cacheKey);
         }
       }
 
-       return MediaDetailsState(details: details, fromCache: false);
-     } catch(e) {
-       // Return error state
-       throw Exception('Failed to load media details');
-     }
-   }
+      // Cache miss or stale, fetch from API
+      try {
+        final tmdbIdInt = int.parse(tmdbId);
+        final details = await _riveService.getMediaDetails(
+          tmdbIdInt,
+          isMovie: isMovie,
+        );
 
-   // For non-TMDB IDs (IMDB), convert first
-   try {
-     if (id.startsWith('tt')) {
-       final tmdbId = await _riveService.findTmdbIdFromImdbId(id);
-       if (tmdbId != null) {
-         final details = await _riveService.getMediaDetails(
-           tmdbId,
-           isMovie: isMovie,
-         );
-         return MediaDetailsState(details: details, fromCache: false);
-       }
-     }
-     throw Exception('Invalid media ID');
-   } catch (e) {
-     rethrow;
-   }
- }
+        // Cache the fresh data
+        final cacheKey = 'media_details_${isMovie ? "movie" : "tv"}_$tmdbId';
+        if (details != null) {
+          try {
+            await CacheHelper.saveToCache(
+                cacheKey, jsonEncode(details.toJson()));
+          } catch (_) {
+            // Silently fail cache save if toJson not available
+          }
+        }
 
- Future<void> refresh((String, bool) params) async {
-   state = const AsyncValue.loading();
-   state = await AsyncValue.guard(() => build(params));
- }
+        return MediaDetailsState(details: details, fromCache: false);
+      } catch (e) {
+        // Return error state
+        throw Exception('Failed to load media details');
+      }
+    }
+
+    // For non-TMDB IDs (IMDB), convert first
+    try {
+      if (id.startsWith('tt')) {
+        final tmdbId = await _riveService.findTmdbIdFromImdbId(id);
+        if (tmdbId != null) {
+          final details = await _riveService.getMediaDetails(
+            tmdbId,
+            isMovie: isMovie,
+          );
+          return MediaDetailsState(details: details, fromCache: false);
+        }
+      }
+      throw Exception('Invalid media ID');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> refresh([(String, bool)? _]) async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(build);
+  }
 }
 
 // ─── Recommendations Provider ───────────────────────────────────────────────
@@ -509,118 +523,166 @@ class PaginatedRecommendations {
   });
 }
 
-final mediaRecommendationsProvider = AsyncNotifierProvider.family<MediaRecommendationsNotifier, PaginatedRecommendations, (String, bool)>(
- MediaRecommendationsNotifier.new,
+final mediaRecommendationsProvider = AsyncNotifierProvider.family<
+    MediaRecommendationsNotifier, PaginatedRecommendations, (String, bool)>(
+  MediaRecommendationsNotifier.new,
 );
 
-class MediaRecommendationsNotifier extends FamilyAsyncNotifier<PaginatedRecommendations, (String, bool)> {
- final _riveService = RiveStreamService();
+class MediaRecommendationsNotifier
+    extends AsyncNotifier<PaginatedRecommendations> {
+  MediaRecommendationsNotifier(this.params);
 
- @override
- Future<PaginatedRecommendations> build((String, bool) params) async {
-   final (id, isMovie) = params;
+  final (String, bool) params;
+  final _riveService = RiveStreamService();
 
-   return await _fetchPage(id, isMovie, 1);
- }
+  @override
+  Future<PaginatedRecommendations> build() async {
+    final (id, isMovie) = params;
 
- Future<PaginatedRecommendations> _fetchPage(String id, bool isMovie, int page) async {
-   try {
-     final tmdbId = int.tryParse(id);
-     if (tmdbId == null) {
-       return PaginatedRecommendations(items: [], currentPage: page, hasMore: false);
-     }
+    return await _fetchPage(id, isMovie, 1);
+  }
 
-     final recommendations = await _riveService.getRecommendations(
-       tmdbId,
-       isMovie: isMovie,
-     );
+  Future<PaginatedRecommendations> _fetchPage(
+      String id, bool isMovie, int page) async {
+    try {
+      final tmdbId = int.tryParse(id);
+      if (tmdbId == null) {
+        return PaginatedRecommendations(
+            items: [], currentPage: page, hasMore: false);
+      }
 
-     return PaginatedRecommendations(
-       items: recommendations,
-       currentPage: page,
-       hasMore: recommendations.length >= 20, // Assumes API returns 20 items per page
-     );
-   } catch (e) {
-     debugPrint('Failed to load recommendations: $e');
-     return PaginatedRecommendations(
-       items: [],
-       currentPage: page,
-       hasMore: false,
-     );
-   }
- }
+      final recommendations = await _riveService.getRecommendations(
+        tmdbId,
+        isMovie: isMovie,
+      );
 
- Future<void> loadMore((String, bool) params) async {
-   final currentState = state.valueOrNull;
-   if (currentState == null || !currentState.hasMore) return;
+      return PaginatedRecommendations(
+        items: recommendations,
+        currentPage: page,
+        hasMore: recommendations.length >=
+            20, // Assumes API returns 20 items per page
+      );
+    } catch (e) {
+      debugPrint('Failed to load recommendations: $e');
+      return PaginatedRecommendations(
+        items: [],
+        currentPage: page,
+        hasMore: false,
+      );
+    }
+  }
 
-   state = AsyncData(PaginatedRecommendations(
-     items: currentState.items,
-     currentPage: currentState.currentPage,
-     hasMore: true, // Keep true while loading
-   ));
+  Future<void> loadMore([(String, bool)? _]) async {
+    final currentState = state.asData?.value;
+    if (currentState == null || !currentState.hasMore) return;
 
-   final (id, isMovie) = params;
-   final nextPage = currentState.currentPage + 1;
+    state = AsyncData(PaginatedRecommendations(
+      items: currentState.items,
+      currentPage: currentState.currentPage,
+      hasMore: true, // Keep true while loading
+    ));
 
-   try {
-     final newItems = await _fetchPage(id, isMovie, nextPage);
+    final (id, isMovie) = this.params;
+    final nextPage = currentState.currentPage + 1;
 
-     state = AsyncData(PaginatedRecommendations(
-       items: [...currentState.items, ...newItems.items],
-       currentPage: nextPage,
-       hasMore: newItems.hasMore,
-     ));
-   } catch (e) {
-     state = AsyncData(PaginatedRecommendations(
-       items: currentState.items,
-       currentPage: currentState.currentPage,
-       hasMore: false, // Disable further loading on error
-     ));
-   }
- }
+    try {
+      final newItems = await _fetchPage(id, isMovie, nextPage);
+
+      state = AsyncData(PaginatedRecommendations(
+        items: [...currentState.items, ...newItems.items],
+        currentPage: nextPage,
+        hasMore: newItems.hasMore,
+      ));
+    } catch (e) {
+      state = AsyncData(PaginatedRecommendations(
+        items: currentState.items,
+        currentPage: currentState.currentPage,
+        hasMore: false, // Disable further loading on error
+      ));
+    }
+  }
 }
 
 // ─── Cast Provider ─────────────────────────────────────────────────────────────
 
-final mediaCastProvider = AsyncNotifierProvider.family<MediaCastNotifier, List<CastMember>, (String, bool)>(
- MediaCastNotifier.new,
+final mediaCastProvider = AsyncNotifierProvider.family<MediaCastNotifier,
+    List<CastMember>, (String, bool)>(
+  MediaCastNotifier.new,
 );
 
-class MediaCastNotifier extends FamilyAsyncNotifier<List<CastMember>, (String, bool)> {
- final _riveService = RiveStreamService();
+class MediaCastNotifier extends AsyncNotifier<List<CastMember>> {
+  MediaCastNotifier(this.params);
 
- @override
- Future<List<CastMember>> build((String, bool) params) async {
-   final (id, isMovie) = params;
+  final (String, bool) params;
+  final _riveService = RiveStreamService();
 
-   try {
-     final tmdbId = int.tryParse(id);
-     if (tmdbId == null) return [];
+  @override
+  Future<List<CastMember>> build() async {
+    final (id, isMovie) = params;
 
-     final cast = await _riveService.getCast(tmdbId, isMovie: isMovie);
-     return cast;
-   } catch (e) {
-     debugPrint('Failed to load cast: $e');
-     return [];
-   }
- }
+    try {
+      final tmdbId = int.tryParse(id);
+      if (tmdbId == null) return [];
+
+      final cast = await _riveService.getCast(tmdbId, isMovie: isMovie);
+      return cast;
+    } catch (e) {
+      debugPrint('Failed to load cast: $e');
+      return [];
+    }
+  }
 }
 
 // ─── Selected Season/Episode State Providers ─────────────────────────────────
 
-final selectedSeasonProvider = StateProvider<int>((ref) => 1);
-final selectedEpisodeProvider = StateProvider<int>((ref) => 1);
+class SelectedSeasonNotifier extends Notifier<int> {
+  @override
+  int build() => 1;
+
+  void setSeason(int season) => state = season;
+}
+
+class SelectedEpisodeNotifier extends Notifier<int> {
+  @override
+  int build() => 1;
+
+  void setEpisode(int episode) => state = episode;
+}
+
+final selectedSeasonProvider =
+    NotifierProvider<SelectedSeasonNotifier, int>(SelectedSeasonNotifier.new);
+final selectedEpisodeProvider =
+    NotifierProvider<SelectedEpisodeNotifier, int>(SelectedEpisodeNotifier.new);
 
 // ─── Scroll Controller Provider for Infinite Scrolling ─────────────────────
 
 final scrollControllerProvider = Provider<ScrollController>((ref) {
- final controller = ScrollController();
- ref.onDispose(() => controller.dispose());
- return controller;
+  final controller = ScrollController();
+  ref.onDispose(() => controller.dispose());
+  return controller;
 });
 
 // ─── Recommendations Pagination State ──────────────────────────────────────
 
-final recommendationsPageProvider = StateProvider<int>((ref) => 1);
-final recommendationsHasMoreProvider = StateProvider<bool>((ref) => true);
+class RecommendationsPageNotifier extends Notifier<int> {
+  @override
+  int build() => 1;
+
+  void setPage(int page) => state = page;
+}
+
+class RecommendationsHasMoreNotifier extends Notifier<bool> {
+  @override
+  bool build() => true;
+
+  void setHasMore(bool hasMore) => state = hasMore;
+}
+
+final recommendationsPageProvider =
+    NotifierProvider<RecommendationsPageNotifier, int>(
+  RecommendationsPageNotifier.new,
+);
+final recommendationsHasMoreProvider =
+    NotifierProvider<RecommendationsHasMoreNotifier, bool>(
+  RecommendationsHasMoreNotifier.new,
+);

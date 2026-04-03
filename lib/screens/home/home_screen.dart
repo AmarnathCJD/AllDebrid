@@ -2,7 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:carousel_slider/carousel_slider.dart';
-import 'package:provider/provider.dart' as provider_pkg;
+import '../../providers/riverpod_compat.dart' as provider_pkg;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,9 +13,11 @@ import '../../providers/home_providers.dart';
 import '../../theme/app_theme.dart';
 
 import '../../services/imdb_service.dart';
+import '../../utils/watchlist_actions.dart';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/rivestream_service.dart';
+import '../../widgets/widgets.dart';
 import 'media_info_screen.dart';
 import 'search_page.dart';
 import '../watchlist/watchlist_screen.dart';
@@ -252,15 +254,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   onTap: () {
                     Navigator.pop(context);
                     HapticFeedback.mediumImpact();
-                    context.read<AppProvider>().toggleWatchlist(item);
-                    ScaffoldMessenger.of(context).clearSnackBars();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Removed from Watchlist'),
-                        duration: Duration(seconds: 1),
-                        behavior: SnackBarBehavior.floating,
-                        backgroundColor: Color(0xFF1E1E1E),
-                      ),
+                    toggleWatchlistWithFeedback(
+                      context,
+                      context.read<AppProvider>(),
+                      item,
+                      wasInWatchlist: true,
                     );
                   },
                   child: Padding(
@@ -337,14 +335,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       debugPrint('Error removing from continue watching: $e');
                     }
                     if (mounted) {
-                      ScaffoldMessenger.of(context).clearSnackBars();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Removed from Continue Watching'),
-                          duration: Duration(seconds: 1),
-                          behavior: SnackBarBehavior.floating,
-                          backgroundColor: Color(0xFF1E1E1E),
-                        ),
+                      showAppSnackBar(
+                        context,
+                        'Removed from continue watching',
+                        type: AppFeedbackType.info,
                       );
                     }
                   },
@@ -916,19 +910,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           backdropUrl: item.fullBackdropUrl,
         );
         final appProvider = context.read<AppProvider>();
-        final wasInWatchlist = appProvider.isInWatchlist(imdbItem.id);
-        appProvider.toggleWatchlist(imdbItem);
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(wasInWatchlist
-                ? 'Removed from Watchlist'
-                : 'Added to Watchlist'),
-            duration: const Duration(seconds: 1),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: const Color(0xFF1E1E1E),
-          ),
-        );
+        toggleWatchlistWithFeedback(context, appProvider, imdbItem);
       },
       onLongPress: () {
         _showCardContextMenu(
@@ -947,7 +929,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               description: item.overview,
               backdropUrl: item.fullBackdropUrl,
             );
-            context.read<AppProvider>().toggleWatchlist(imdbItem);
+            addToWatchlistIfMissing(
+              context,
+              context.read<AppProvider>(),
+              imdbItem,
+            );
             Navigator.pop(context);
           },
         );
@@ -1461,20 +1447,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         },
                         onDoubleTap: () {
                           HapticFeedback.mediumImpact();
-                          final appProvider = context.read<AppProvider>();
-                          final wasInWatchlist =
-                              appProvider.isInWatchlist(wp.media.id);
-                          appProvider.toggleWatchlist(wp.media);
-                          ScaffoldMessenger.of(context).clearSnackBars();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(wasInWatchlist
-                                  ? 'Removed from Watchlist'
-                                  : 'Added to Watchlist'),
-                              duration: const Duration(seconds: 1),
-                              behavior: SnackBarBehavior.floating,
-                              backgroundColor: const Color(0xFF1E1E1E),
-                            ),
+                          toggleWatchlistWithFeedback(
+                            context,
+                            context.read<AppProvider>(),
+                            wp.media,
                           );
                         },
                         onLongPress: () {
@@ -1927,19 +1903,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       },
       onDoubleTap: () {
         HapticFeedback.mediumImpact();
-        final wasInWatchlist = appProvider.isInWatchlist(imdbItem.id);
-        appProvider.toggleWatchlist(imdbItem);
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(wasInWatchlist
-                ? 'Removed from Watchlist'
-                : 'Added to Watchlist'),
-            duration: const Duration(seconds: 1),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: const Color(0xFF1E1E1E),
-          ),
-        );
+        toggleWatchlistWithFeedback(context, appProvider, imdbItem);
       },
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
@@ -2166,19 +2130,7 @@ class _FeaturedCarouselWidgetState extends State<_FeaturedCarouselWidget> {
           backdropUrl: item.fullBackdropUrl,
         );
         final appProvider = context.read<AppProvider>();
-        final wasInWatchlist = appProvider.isInWatchlist(imdbItem.id);
-        appProvider.toggleWatchlist(imdbItem);
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(wasInWatchlist
-                ? 'Removed from Watchlist'
-                : 'Added to Watchlist'),
-            duration: const Duration(seconds: 1),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: const Color(0xFF1E1E1E),
-          ),
-        );
+        toggleWatchlistWithFeedback(context, appProvider, imdbItem);
       },
       child: Container(
         decoration: BoxDecoration(

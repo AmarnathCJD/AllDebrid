@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:provider/provider.dart' as provider_pkg;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:app_links/app_links.dart';
 
 import 'providers/providers.dart';
-import 'providers/navigation_provider.dart';
 import 'services/services.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
@@ -41,90 +39,48 @@ void main() async {
 
   runApp(
     ProviderScope(
-      child: AllDebridApp(
-        storageService: storageService,
-        downloadService: downloadService,
-      ),
+      overrides: [
+        storageServiceProvider.overrideWithValue(storageService),
+        downloadServiceProvider.overrideWithValue(downloadService),
+      ],
+      child: const AllDebridApp(),
     ),
   );
 }
 
-class AllDebridApp extends StatelessWidget {
-  final StorageService storageService;
-  final DownloadService downloadService;
-
-  const AllDebridApp({
-    super.key,
-    required this.storageService,
-    required this.downloadService,
-  });
+class AllDebridApp extends ConsumerWidget {
+  const AllDebridApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return provider_pkg.MultiProvider(
-      providers: [
-        provider_pkg.ChangeNotifierProvider(
-          create: (_) => AppProvider(storageService: storageService),
-        ),
-        provider_pkg.ChangeNotifierProvider(
-            create: (_) => NavigationProvider()),
-        provider_pkg.ChangeNotifierProxyProvider<AppProvider, MagnetProvider>(
-          create: (context) => MagnetProvider(
-            getService: () => context.read<AppProvider>().allDebridService,
-          ),
-          update: (context, appProvider, previous) =>
-              previous ??
-              MagnetProvider(getService: () => appProvider.allDebridService),
-        ),
-        provider_pkg.ChangeNotifierProxyProvider<AppProvider, LinkProvider>(
-          create: (context) => LinkProvider(
-            getService: () => context.read<AppProvider>().allDebridService,
-          ),
-          update: (context, appProvider, previous) =>
-              previous ??
-              LinkProvider(getService: () => appProvider.allDebridService),
-        ),
-        provider_pkg.ChangeNotifierProvider(
-          create: (_) => DownloadProvider(downloadService: downloadService),
-        ),
-        provider_pkg.ChangeNotifierProvider(
-          create: (_) => TrendingProvider(),
-        ),
-        provider_pkg.ChangeNotifierProvider(
-          create: (_) => KDramaProvider(),
-        ),
-      ],
-      child: provider_pkg.Selector<AppProvider, (Color, bool)>(
-        selector: (_, p) => (p.primaryColor, p.isDarkMode),
-        builder: (context, themeData, _) {
-          return MaterialApp(
-            title: 'AllDebrid',
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.createTheme(themeData.$1, isDark: themeData.$2),
-            navigatorObservers: [context.read<AppProvider>().routeObserver],
-            home: const AppWrapper(),
-          );
-        },
-      ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeData = ref.watch(
+      appProviderProvider.select((p) => (p.primaryColor, p.isDarkMode)),
+    );
+    return MaterialApp(
+      title: 'AllDebrid',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.createTheme(themeData.$1, isDark: themeData.$2),
+      navigatorObservers: [ref.read(appProviderProvider).routeObserver],
+      home: const AppWrapper(),
     );
   }
 }
 
-class AppWrapper extends StatefulWidget {
+class AppWrapper extends ConsumerStatefulWidget {
   const AppWrapper({super.key});
 
   @override
-  State<AppWrapper> createState() => _AppWrapperState();
+  ConsumerState<AppWrapper> createState() => _AppWrapperState();
 }
 
-class _AppWrapperState extends State<AppWrapper> {
+class _AppWrapperState extends ConsumerState<AppWrapper> {
   bool _isInitializing = true;
   final _appLinks = AppLinks();
 
   @override
   void initState() {
     super.initState();
-    final appProvider = context.read<AppProvider>();
+    final appProvider = ref.read(appProviderProvider);
     // If user has launched before (has API key in storage), skip splash
     final hasLaunchedBefore = appProvider.hasApiKey ||
         (appProvider.getSetting<bool>('has_launched') ?? false);
@@ -187,10 +143,10 @@ class _AppWrapperState extends State<AppWrapper> {
 
   Future<void> _initializeApp({required bool showSplash}) async {
     if (!mounted) return;
-    final appProvider = context.read<AppProvider>();
-    final trendingProvider = context.read<TrendingProvider>();
-    final kdramaProvider = context.read<KDramaProvider>();
-    final magnetProvider = context.read<MagnetProvider>();
+    final appProvider = ref.read(appProviderProvider);
+    final trendingProvider = ref.read(trendingProviderProvider);
+    final kdramaProvider = ref.read(kDramaProviderProvider);
+    final magnetProvider = ref.read(magnetProviderProvider);
 
     await appProvider.initialize();
     await appProvider.saveSetting('has_launched', true);
