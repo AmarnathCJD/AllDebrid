@@ -1,15 +1,13 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:carousel_slider/carousel_slider.dart';
-import '../../providers/riverpod_compat.dart' as provider_pkg;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:shimmer/shimmer.dart';
 import '../../providers/providers.dart';
-import '../../providers/home_providers.dart';
 import '../../theme/app_theme.dart';
 
 import '../../services/imdb_service.dart';
@@ -21,6 +19,7 @@ import '../../widgets/widgets.dart';
 import 'media_info_screen.dart';
 import 'search_page.dart';
 import '../watchlist/watchlist_screen.dart';
+import 'animations/navigation_transitions.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -68,14 +67,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       duration: const Duration(milliseconds: 300),
     );
     _scrollController.addListener(_onScroll);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      context.read<AppProvider>().refreshUser();
-      context.read<MagnetProvider>().fetchMagnets();
-      context.read<TrendingProvider>().loadTrendingData();
-      context.read<KDramaProvider>().loadTopDramas();
-      context.read<KDramaProvider>().loadLatestDramas();
-    });
   }
 
   void _onScroll() {
@@ -114,11 +105,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ref.invalidate(riveTrendingProvider);
     ref.invalidate(continueWatchingProvider);
     await Future.wait([
-      context.read<AppProvider>().refreshUser(),
-      context.read<MagnetProvider>().fetchMagnets(),
-      context.read<TrendingProvider>().loadTrendingData(),
-      context.read<KDramaProvider>().loadTopDramas(),
-      context.read<KDramaProvider>().loadLatestDramas(),
+      ref.read(appNotifierProvider.notifier).refreshUser(),
+      ref.read(magnetNotifierProvider.notifier).fetchMagnets(),
+      ref.read(trendingNotifierProvider.notifier).loadTrendingData(),
+      ref.read(kDramaNotifierProvider.notifier).loadTopDramas(),
+      ref.read(kDramaNotifierProvider.notifier).loadLatestDramas(),
     ]);
     debugPrint('[HomeScreen] _onRefresh() completed');
   }
@@ -127,8 +118,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     BuildContext context, {
     required String title,
     required VoidCallback onAddWatchlist,
+    String? rating,
+    String? year,
+    String? kind,
   }) {
-    showDialog(
+    unawaited(showDialog(
       context: context,
       builder: (context) => Dialog(
         backgroundColor: const Color(0xFF151515).withValues(alpha: 0.85),
@@ -141,15 +135,70 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             children: [
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.outfit(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (rating != null || year != null || kind != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          if (rating != null && rating.isNotEmpty) ...[
+                            const Icon(Icons.star_rounded,
+                                color: Colors.amber, size: 14),
+                            const SizedBox(width: 4),
+                            Text(
+                              rating,
+                              style: GoogleFonts.outfit(
+                                color: Colors.white.withValues(alpha: 0.7),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
+                          if (year != null && year.isNotEmpty) ...[
+                            Text(
+                              year,
+                              style: GoogleFonts.outfit(
+                                color: Colors.white.withValues(alpha: 0.5),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
+                          if (kind != null && kind.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                kind.toUpperCase(),
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white.withValues(alpha: 0.5),
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ),
               ),
               const Divider(height: 1, color: Colors.white12),
@@ -164,7 +213,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             horizontal: 16, vertical: 12),
                         child: Row(
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.bookmark_rounded,
                               color: AppTheme.primaryColor,
                               size: 20,
@@ -191,7 +240,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             horizontal: 16, vertical: 12),
                         child: Row(
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.share_rounded,
                               color: AppTheme.primaryColor,
                               size: 20,
@@ -215,7 +264,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ),
         ),
       ),
-    );
+    ));
   }
 
   void _showWatchlistContextMenu(
@@ -223,9 +272,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     required String title,
     required ImdbSearchResult item,
   }) {
-    showDialog(
+    final appState = ref.read(appNotifierProvider);
+    unawaited(showDialog(
       context: context,
-      builder: (context) => Dialog(
+      builder: (dialogContext) => Dialog(
         backgroundColor: const Color(0xFF151515).withValues(alpha: 0.85),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
@@ -236,15 +286,68 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             children: [
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.outfit(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        if (item.rating != null && item.rating!.isNotEmpty) ...[
+                          const Icon(Icons.star_rounded,
+                              color: Colors.amber, size: 14),
+                          const SizedBox(width: 4),
+                          Text(
+                            item.rating!,
+                            style: GoogleFonts.outfit(
+                              color: Colors.white.withValues(alpha: 0.7),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                        ],
+                        if (item.year.isNotEmpty) ...[
+                          Text(
+                            item.year,
+                            style: GoogleFonts.outfit(
+                              color: Colors.white.withValues(alpha: 0.5),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                        ],
+                        if (item.kind != null && item.kind!.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              item.kind!.toUpperCase(),
+                              style: GoogleFonts.outfit(
+                                color: Colors.white.withValues(alpha: 0.5),
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
               const Divider(height: 1, color: Colors.white12),
@@ -252,14 +355,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 color: Colors.transparent,
                 child: InkWell(
                   onTap: () {
-                    Navigator.pop(context);
+                    Navigator.pop(dialogContext);
                     HapticFeedback.mediumImpact();
-                    toggleWatchlistWithFeedback(
+                    unawaited(toggleWatchlistWithFeedback(
                       context,
-                      context.read<AppProvider>(),
+                      ref,
+                      appState,
                       item,
                       wasInWatchlist: true,
-                    );
+                    ));
                   },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
@@ -288,17 +392,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ),
         ),
       ),
-    );
+    ));
   }
 
   void _showContinueWatchingContextMenu(
     BuildContext context, {
     required String title,
     required String mediaId,
+    String? rating,
+    String? year,
+    String? kind,
   }) {
-    showDialog(
+    unawaited(showDialog(
       context: context,
-      builder: (context) => Dialog(
+      builder: (dialogContext) => Dialog(
         backgroundColor: const Color(0xFF151515).withValues(alpha: 0.85),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
@@ -309,15 +416,70 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             children: [
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.outfit(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (rating != null || year != null || kind != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          if (rating != null && rating.isNotEmpty) ...[
+                            const Icon(Icons.star_rounded,
+                                color: Colors.amber, size: 14),
+                            const SizedBox(width: 4),
+                            Text(
+                              rating,
+                              style: GoogleFonts.outfit(
+                                color: Colors.white.withValues(alpha: 0.7),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
+                          if (year != null && year.isNotEmpty) ...[
+                            Text(
+                              year,
+                              style: GoogleFonts.outfit(
+                                color: Colors.white.withValues(alpha: 0.5),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
+                          if (kind != null && kind.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                kind.toUpperCase(),
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white.withValues(alpha: 0.5),
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ),
               ),
               const Divider(height: 1, color: Colors.white12),
@@ -325,7 +487,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 color: Colors.transparent,
                 child: InkWell(
                   onTap: () async {
-                    Navigator.pop(context);
+                    Navigator.pop(dialogContext);
                     HapticFeedback.mediumImpact();
                     try {
                       final imdbService = ImdbService();
@@ -369,137 +531,97 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ),
         ),
       ),
-    );
+    ));
   }
 
   void _handleMediaTap(ImdbSearchResult item) {
-    Navigator.push(
+    HapticFeedback.lightImpact();
+    unawaited(Navigator.push(
       context,
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 500),
-        reverseTransitionDuration: const Duration(milliseconds: 350),
+      SmoothPageTransition(
+        duration: const Duration(milliseconds: 600),
         pageBuilder: (context, animation, secondaryAnimation) =>
             MediaInfoScreen(item: item),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final forwardCurved = CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutExpo,
-          );
-          final backwardCurved = CurvedAnimation(
-            parent: secondaryAnimation,
-            curve: Curves.easeInCubic,
-          );
-
-          return Stack(
-            children: [
-              // Background fade
-              ScaleTransition(
-                scale: Tween<double>(begin: 0.98, end: 1.0)
-                    .animate(backwardCurved),
-                child: FadeTransition(
-                  opacity: Tween<double>(begin: 0.0, end: 1.0)
-                      .animate(forwardCurved),
-                  child: Container(color: Colors.black54),
-                ),
-              ),
-              // Content with diagonal slide + fade + scale
-              FadeTransition(
-                opacity:
-                    Tween<double>(begin: 0.0, end: 1.0).animate(forwardCurved),
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(0.05, 0.08),
-                    end: Offset.zero,
-                  ).animate(forwardCurved),
-                  child: ScaleTransition(
-                    scale: Tween<double>(begin: 0.90, end: 1.0)
-                        .animate(forwardCurved),
-                    child: child,
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
       ),
-    );
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('[HomeScreen] build() called');
     final trendingAsync = ref.watch(riveTrendingProvider);
     final continueWatchingAsync = ref.watch(continueWatchingProvider);
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       extendBodyBehindAppBar: true,
-      body: Stack(
-        children: [
-          // Static Background
-          Positioned.fill(
-            child: Container(
-              color: Colors.black.withValues(alpha: 0.8),
+      body: RepaintBoundary(
+        child: Stack(
+          children: [
+            // Static Background
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.8),
+              ),
             ),
-          ),
 
-          SafeArea(
-            top: false,
-            child: RefreshIndicator(
-              color: AppTheme.primaryColor,
-              backgroundColor: AppTheme.cardColor,
-              onRefresh: _onRefresh,
-              child: CustomScrollView(
-                controller: _scrollController,
-                cacheExtent: 150,
-                physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
-                ),
-                slivers: [
-                  SliverToBoxAdapter(
-                      child: SizedBox(
-                          height: MediaQuery.paddingOf(context).top + 12)),
-                  const SliverToBoxAdapter(child: SizedBox(height: 4)),
-                  SliverToBoxAdapter(child: _buildHeader()),
-                  const SliverToBoxAdapter(child: SizedBox(height: 20)),
-                  SliverToBoxAdapter(
-                    child: RepaintBoundary(
-                      child: trendingAsync.when(
-                        data: (trendingData) => _FeaturedCarouselWidget(
-                            items: trendingData.featured),
-                        loading: () => SizedBox(
-                          height: 530,
-                          child: Shimmer.fromColors(
-                            baseColor: Colors.white.withValues(alpha: 0.05),
-                            highlightColor:
-                                Colors.white.withValues(alpha: 0.08),
-                            period: const Duration(milliseconds: 1000),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 30, vertical: 20),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.08),
-                                  borderRadius: BorderRadius.circular(12),
+            SafeArea(
+              top: false,
+              child: RefreshIndicator(
+                color: AppTheme.primaryColor,
+                backgroundColor: AppTheme.cardColor,
+                onRefresh: _onRefresh,
+                child: CustomScrollView(
+                  controller: _scrollController,
+                  cacheExtent: 500,
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
+                  slivers: [
+                    SliverToBoxAdapter(
+                        child: SizedBox(
+                            height: MediaQuery.paddingOf(context).top + 12)),
+                    const SliverToBoxAdapter(child: SizedBox(height: 4)),
+                    SliverToBoxAdapter(child: _buildHeader()),
+                    const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                    SliverToBoxAdapter(
+                      child: RepaintBoundary(
+                        child: trendingAsync.when(
+                          data: (trendingData) => _FeaturedCarouselWidget(
+                              items: trendingData.featured),
+                          loading: () => SizedBox(
+                            height: 530,
+                            child: Shimmer.fromColors(
+                              baseColor: Colors.white.withValues(alpha: 0.05),
+                              highlightColor:
+                                  Colors.white.withValues(alpha: 0.08),
+                              period: const Duration(milliseconds: 1000),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 30, vertical: 20),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                        error: (_, __) => SizedBox(
-                          height: 530,
-                          child: Shimmer.fromColors(
-                            baseColor: Colors.white.withValues(alpha: 0.05),
-                            highlightColor:
-                                Colors.white.withValues(alpha: 0.08),
-                            period: const Duration(milliseconds: 1000),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 30, vertical: 20),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.08),
-                                  borderRadius: BorderRadius.circular(12),
+                          error: (_, __) => SizedBox(
+                            height: 530,
+                            child: Shimmer.fromColors(
+                              baseColor: Colors.white.withValues(alpha: 0.05),
+                              highlightColor:
+                                  Colors.white.withValues(alpha: 0.08),
+                              period: const Duration(milliseconds: 1000),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 30, vertical: 20),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                 ),
                               ),
                             ),
@@ -507,87 +629,90 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         ),
                       ),
                     ),
-                  ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
-                  SliverToBoxAdapter(
-                    child: RepaintBoundary(
+                    const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                    SliverToBoxAdapter(
+                      child: RepaintBoundary(
+                        child: continueWatchingAsync.when(
+                          data: (items) => items.isEmpty
+                              ? const SizedBox.shrink()
+                              : _buildContinueWatchingSection(items),
+                          loading: () => const SizedBox.shrink(),
+                          error: (_, __) => const SizedBox.shrink(),
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
                       child: continueWatchingAsync.when(
                         data: (items) => items.isEmpty
                             ? const SizedBox.shrink()
-                            : _buildContinueWatchingSection(items),
+                            : const SizedBox(height: 8),
                         loading: () => const SizedBox.shrink(),
                         error: (_, __) => const SizedBox.shrink(),
                       ),
                     ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: continueWatchingAsync.when(
-                      data: (items) => items.isEmpty
-                          ? const SizedBox.shrink()
-                          : const SizedBox(height: 8),
-                      loading: () => const SizedBox.shrink(),
-                      error: (_, __) => const SizedBox.shrink(),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                      child: RepaintBoundary(child: _buildWatchlistSection())),
-                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
-                  SliverToBoxAdapter(
-                    child: RepaintBoundary(
-                      child: trendingAsync.maybeWhen(
-                        data: (trendingData) => _buildRiveTrendingMoviesSection(
-                            trendingData.movies),
-                        orElse: () => _buildShimmerCardRow(),
+                    SliverToBoxAdapter(
+                        child:
+                            RepaintBoundary(child: _buildWatchlistSection())),
+                    const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                    SliverToBoxAdapter(
+                      child: RepaintBoundary(
+                        child: trendingAsync.maybeWhen(
+                          data: (trendingData) =>
+                              _buildRiveTrendingMoviesSection(
+                                  trendingData.movies),
+                          orElse: () => _buildShimmerCardRow(),
+                        ),
                       ),
                     ),
-                  ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
-                  SliverToBoxAdapter(
-                    child: RepaintBoundary(
-                      child: trendingAsync.maybeWhen(
-                        data: (trendingData) =>
-                            _buildRiveTrendingTVShowsSection(
-                                trendingData.tvShows),
-                        orElse: () => _buildShimmerCardRow(),
+                    const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                    SliverToBoxAdapter(
+                      child: RepaintBoundary(
+                        child: trendingAsync.maybeWhen(
+                          data: (trendingData) =>
+                              _buildRiveTrendingTVShowsSection(
+                                  trendingData.tvShows),
+                          orElse: () => _buildShimmerCardRow(),
+                        ),
                       ),
                     ),
-                  ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
-                  SliverToBoxAdapter(
-                      child: RepaintBoundary(child: _buildNetflixSection())),
-                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
-                  SliverToBoxAdapter(
-                      child:
-                          RepaintBoundary(child: _buildAmazonPrimeSection())),
-                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
-                  SliverToBoxAdapter(
-                      child: RepaintBoundary(child: _buildTopKDramasSection())),
-                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
-                  SliverToBoxAdapter(
-                      child:
-                          RepaintBoundary(child: _buildLatestKDramasSection())),
-                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
-                  SliverToBoxAdapter(
-                      child: RepaintBoundary(
-                          child: _buildGenreSection('Action', 'ls000'))),
-                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
-                  SliverToBoxAdapter(
-                      child: RepaintBoundary(
-                          child: _buildGenreSection('Comedy', 'ls001'))),
-                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
-                  SliverToBoxAdapter(
-                      child: RepaintBoundary(
-                          child: _buildGenreSection('Horror', 'ls002'))),
-                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
-                  SliverToBoxAdapter(
-                      child: RepaintBoundary(
-                          child: _buildGenreSection('Sci-Fi', 'ls003'))),
-                  const SliverToBoxAdapter(child: SizedBox(height: 100)),
-                ],
+                    const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                    SliverToBoxAdapter(
+                        child: RepaintBoundary(child: _buildNetflixSection())),
+                    const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                    SliverToBoxAdapter(
+                        child:
+                            RepaintBoundary(child: _buildAmazonPrimeSection())),
+                    const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                    SliverToBoxAdapter(
+                        child:
+                            RepaintBoundary(child: _buildTopKDramasSection())),
+                    const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                    SliverToBoxAdapter(
+                        child: RepaintBoundary(
+                            child: _buildLatestKDramasSection())),
+                    const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                    SliverToBoxAdapter(
+                        child: RepaintBoundary(
+                            child: _buildGenreSection('Action', 'ls000'))),
+                    const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                    SliverToBoxAdapter(
+                        child: RepaintBoundary(
+                            child: _buildGenreSection('Comedy', 'ls001'))),
+                    const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                    SliverToBoxAdapter(
+                        child: RepaintBoundary(
+                            child: _buildGenreSection('Horror', 'ls002'))),
+                    const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                    SliverToBoxAdapter(
+                        child: RepaintBoundary(
+                            child: _buildGenreSection('Sci-Fi', 'ls003'))),
+                    const SliverToBoxAdapter(child: SizedBox(height: 100)),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
       floatingActionButton: AnimatedBuilder(
         animation: _scrollController,
@@ -634,7 +759,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             children: [
               GestureDetector(
                 onTap: () {
-                  Navigator.push(
+                  unawaited(Navigator.push(
                     context,
                     PageRouteBuilder(
                       pageBuilder: (context, animation, secondaryAnimation) =>
@@ -644,7 +769,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         return FadeTransition(opacity: animation, child: child);
                       },
                     ),
-                  );
+                  ));
                 },
                 child: Hero(
                   tag: 'search_bar',
@@ -707,7 +832,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Widget _buildShimmerCardRow() {
     return SizedBox(
-      height: 230,
+      height: 190,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 12),
         scrollDirection: Axis.horizontal,
@@ -741,7 +866,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         children: [
           Text(
             title,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppTheme.textPrimary,
               fontSize: 17,
               fontWeight: FontWeight.w700,
@@ -769,7 +894,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   ),
                   child: Row(
                     children: [
-                      Text(
+                      const Text(
                         'VIEW ALL',
                         style: TextStyle(
                           color: AppTheme.primaryColor,
@@ -810,31 +935,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       children: [
         _buildSectionHeader('Trending Movies'),
         const SizedBox(height: 0),
-        AnimationLimiter(
-          child: SizedBox(
-            height: 230,
-            child: ListView.separated(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              scrollDirection: Axis.horizontal,
-              itemCount: movies.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              addRepaintBoundaries: false,
-              addSemanticIndexes: false,
-              itemBuilder: (context, index) {
-                final item = movies[index];
-                return AnimationConfiguration.staggeredList(
-                  position: index,
-                  duration: const Duration(milliseconds: 350),
-                  child: SlideAnimation(
-                    horizontalOffset: 30.0,
-                    child: FadeInAnimation(
-                      child: _buildRiveMediaCard(item),
-                    ),
-                  ),
-                );
-              },
-            ),
+        SizedBox(
+          height: 190,
+          child: ListView.separated(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            scrollDirection: Axis.horizontal,
+            itemCount: movies.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            addSemanticIndexes: false,
+            itemBuilder: (context, index) {
+              final item = movies[index];
+              return _buildRiveMediaCard(item);
+            },
           ),
         ),
       ],
@@ -857,31 +970,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       children: [
         _buildSectionHeader('Trending TV Shows'),
         const SizedBox(height: 0),
-        AnimationLimiter(
-          child: SizedBox(
-            height: 230,
-            child: ListView.separated(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              scrollDirection: Axis.horizontal,
-              itemCount: tvShows.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              addRepaintBoundaries: false,
-              addSemanticIndexes: false,
-              itemBuilder: (context, index) {
-                final item = tvShows[index];
-                return AnimationConfiguration.staggeredList(
-                  position: index,
-                  duration: const Duration(milliseconds: 350),
-                  child: SlideAnimation(
-                    horizontalOffset: 30.0,
-                    child: FadeInAnimation(
-                      child: _buildRiveMediaCard(item),
-                    ),
-                  ),
-                );
-              },
-            ),
+        SizedBox(
+          height: 190,
+          child: ListView.separated(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            scrollDirection: Axis.horizontal,
+            itemCount: tvShows.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            addSemanticIndexes: false,
+            itemBuilder: (context, index) {
+              final item = tvShows[index];
+              return _buildRiveMediaCard(item);
+            },
           ),
         ),
       ],
@@ -889,7 +990,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Widget _buildRiveMediaCard(RiveStreamMedia item) {
-    final appProvider = context.read<AppProvider>();
+    final appState = ref.read(appNotifierProvider);
     return _PressScaleCard(
       onTap: () {
         HapticFeedback.lightImpact();
@@ -909,13 +1010,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           description: item.overview,
           backdropUrl: item.fullBackdropUrl,
         );
-        final appProvider = context.read<AppProvider>();
-        toggleWatchlistWithFeedback(context, appProvider, imdbItem);
+        unawaited(
+            toggleWatchlistWithFeedback(context, ref, appState, imdbItem));
       },
       onLongPress: () {
         _showCardContextMenu(
           context,
           title: item.displayTitle,
+          rating: item.voteAverage.toStringAsFixed(1),
+          year: item.displayDate.isNotEmpty
+              ? item.displayDate.split('-').first
+              : '',
+          kind: item.mediaType == 'movie' ? 'movie' : 'tvseries',
           onAddWatchlist: () {
             final imdbItem = ImdbSearchResult(
               id: item.id.toString(),
@@ -929,11 +1035,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               description: item.overview,
               backdropUrl: item.fullBackdropUrl,
             );
-            addToWatchlistIfMissing(
+            final appState = ref.read(appNotifierProvider);
+            unawaited(addToWatchlistIfMissing(
               context,
-              context.read<AppProvider>(),
+              ref,
+              appState,
               imdbItem,
-            );
+            ));
             Navigator.pop(context);
           },
         );
@@ -950,9 +1058,194 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               Colors.white.withValues(alpha: 0.03),
             ],
           ),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.15),
-            width: 1,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: AspectRatio(
+          aspectRatio: 2 / 3,
+          child: Hero(
+            tag: 'trending_media_${item.id}',
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                CachedNetworkImage(
+                  imageUrl: item.fullPosterUrl,
+                  fit: BoxFit.cover,
+                  fadeInDuration: Duration.zero,
+                  fadeOutDuration: Duration.zero,
+                  placeholder: (_, __) => const AppBlurHashPlaceholder(),
+                  errorWidget: (_, __, ___) => const AppBlurHashPlaceholder(
+                    fallbackIcon:
+                        Icon(Icons.movie, color: Colors.white24, size: 30),
+                  ),
+                ),
+                // IN LIST badge
+                if (appState.isInWatchlist(item.id.toString()))
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryColor,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'IN LIST',
+                        style: GoogleFonts.outfit(
+                          color: Colors.black,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNetflixSection() {
+    final trendingProvider = ref.watch(trendingNotifierProvider);
+    if (trendingProvider.netflixShows.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return _buildTrendingCarousel(
+      'Popular on Netflix',
+      trendingProvider.netflixShows,
+    );
+  }
+
+  Widget _buildAmazonPrimeSection() {
+    final trendingProvider = ref.watch(trendingNotifierProvider);
+    if (trendingProvider.amazonPrimeShows.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      children: [
+        _buildTrendingCarousel(
+          'Popular on Prime Video',
+          trendingProvider.amazonPrimeShows,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTopKDramasSection() {
+    final kdramaProvider = ref.watch(kDramaNotifierProvider);
+    if (kdramaProvider.topDramas.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      children: [
+        _buildKDramaCarousel(
+          'Top K-Dramas',
+          kdramaProvider.topDramas,
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  Widget _buildLatestKDramasSection() {
+    final kdramaProvider = ref.watch(kDramaNotifierProvider);
+    if (kdramaProvider.latestDramas.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      children: [
+        _buildKDramaCarousel(
+          'Latest K-Dramas',
+          kdramaProvider.latestDramas,
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  Widget _buildTrendingCarousel(String title, List<TrendingItem> items) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader(title),
+        const SizedBox(height: 4),
+        SizedBox(
+          height: 190,
+          child: ListView.separated(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            addSemanticIndexes: false,
+            itemBuilder: (context, index) => _buildTrendingCard(items[index]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTrendingCard(TrendingItem item) {
+    final imdbItem = ImdbSearchResult(
+      id: item.id,
+      title: item.title,
+      posterUrl: item.posterUrl ?? '',
+      year: item.releaseDate ?? '',
+      kind: item.mediaType == 'movie' ? 'movie' : 'tvseries',
+      rating: item.rating?.toStringAsFixed(1),
+    );
+    return _PressScaleCard(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        _handleMediaTap(imdbItem);
+      },
+      onDoubleTap: () {
+        HapticFeedback.mediumImpact();
+        final appState = ref.read(appNotifierProvider);
+        unawaited(
+            toggleWatchlistWithFeedback(context, ref, appState, imdbItem));
+      },
+      onLongPress: () {
+        _showCardContextMenu(
+          context,
+          title: item.title,
+          rating: item.rating?.toStringAsFixed(1),
+          year: item.releaseDate ?? '',
+          kind: item.mediaType == 'movie' ? 'movie' : 'tvseries',
+          onAddWatchlist: () {
+            final appState = ref.read(appNotifierProvider);
+            unawaited(addToWatchlistIfMissing(
+              context,
+              ref,
+              appState,
+              imdbItem,
+            ));
+            Navigator.pop(context);
+          },
+        );
+      },
+      child: Container(
+        width: 120,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withValues(alpha: 0.08),
+              Colors.white.withValues(alpha: 0.03),
+            ],
           ),
           boxShadow: [
             BoxShadow(
@@ -963,300 +1256,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ],
         ),
         clipBehavior: Clip.antiAlias,
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              AspectRatio(
-                aspectRatio: 2 / 3,
-                child: Hero(
-                  tag: 'trending_media_${item.id}',
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      CachedNetworkImage(
-                        imageUrl: item.fullPosterUrl,
-                        fit: BoxFit.cover,
-                        fadeInDuration: Duration.zero,
-                        fadeOutDuration: Duration.zero,
-                        placeholder: (_, __) => Container(
-                            color: Colors.white.withValues(alpha: 0.05)),
-                        errorWidget: (_, __, ___) => Container(
-                          color: Colors.white.withValues(alpha: 0.05),
-                          child: const Icon(Icons.movie,
-                              color: Colors.white24, size: 30),
-                        ),
-                      ),
-                      // IN LIST badge
-                      if (appProvider.isInWatchlist(item.id.toString()))
-                        Positioned(
-                          top: 6,
-                          right: 6,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: AppTheme.primaryColor,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              'IN LIST',
-                              style: GoogleFonts.outfit(
-                                color: Colors.black,
-                                fontSize: 8,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                child: Column(
-                  children: [
-                    Text(
-                      item.displayTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.star_rounded,
-                            color: Colors.amber, size: 10),
-                        const SizedBox(width: 3),
-                        Text(
-                          item.voteAverage.toStringAsFixed(1),
-                          style: GoogleFonts.outfit(
-                            color: Colors.white.withValues(alpha: 0.9),
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNetflixSection() {
-    return provider_pkg.Consumer<TrendingProvider>(
-      builder: (context, trendingProvider, _) {
-        if (trendingProvider.netflixShows.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        return _buildTrendingCarousel(
-          'Popular on Netflix',
-          trendingProvider.netflixShows,
-        );
-      },
-    );
-  }
-
-  Widget _buildAmazonPrimeSection() {
-    return provider_pkg.Consumer<TrendingProvider>(
-      builder: (context, trendingProvider, _) {
-        if (trendingProvider.amazonPrimeShows.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        return Column(
-          children: [
-            _buildTrendingCarousel(
-              'Popular on Prime Video',
-              trendingProvider.amazonPrimeShows,
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildTopKDramasSection() {
-    return provider_pkg.Consumer<KDramaProvider>(
-      builder: (context, kdramaProvider, _) {
-        if (kdramaProvider.topDramas.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        return Column(
-          children: [
-            _buildKDramaCarousel(
-              'Top K-Dramas',
-              kdramaProvider.topDramas,
-            ),
-            const SizedBox(height: 16),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildLatestKDramasSection() {
-    return provider_pkg.Consumer<KDramaProvider>(
-      builder: (context, kdramaProvider, _) {
-        if (kdramaProvider.latestDramas.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        return Column(
-          children: [
-            _buildKDramaCarousel(
-              'Latest K-Dramas',
-              kdramaProvider.latestDramas,
-            ),
-            const SizedBox(height: 16),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildTrendingCarousel(String title, List<TrendingItem> items) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionHeader(title),
-        const SizedBox(height: 4),
-        AnimationLimiter(
-          child: SizedBox(
-            height: 230,
-            child: ListView.separated(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              scrollDirection: Axis.horizontal,
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              addRepaintBoundaries: false,
-              addSemanticIndexes: false,
-              itemBuilder: (context, index) =>
-                  _buildTrendingCard(items[index], index),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTrendingCard(TrendingItem item, int index) {
-    return AnimationConfiguration.staggeredList(
-      position: index,
-      duration: const Duration(milliseconds: 350),
-      child: SlideAnimation(
-        horizontalOffset: 30.0,
-        child: FadeInAnimation(
-          child: _PressScaleCard(
-            onTap: () {
-              final imdbItem = ImdbSearchResult(
-                id: item.id,
-                title: item.title,
-                posterUrl: item.posterUrl ?? '',
-                year: item.releaseDate ?? '',
-                kind: item.mediaType == 'movie' ? 'movie' : 'tvseries',
-                rating: item.rating?.toStringAsFixed(1),
-              );
-              _handleMediaTap(imdbItem);
-            },
-            child: Container(
-              width: 120,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white.withValues(alpha: 0.08),
-                    Colors.white.withValues(alpha: 0.03),
-                  ],
-                ),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.15),
-                  width: 1,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    AspectRatio(
-                      aspectRatio: 2 / 3,
-                      child: CachedNetworkImage(
-                        imageUrl: item.posterUrl ?? '',
-                        fit: BoxFit.cover,
-                        fadeInDuration: Duration.zero,
-                        fadeOutDuration: Duration.zero,
-                        placeholder: (_, __) => Container(
-                            color: Colors.white.withValues(alpha: 0.05)),
-                        errorWidget: (_, __, ___) => Container(
-                          color: Colors.white.withValues(alpha: 0.05),
-                          child: const Icon(Icons.movie,
-                              color: Colors.white24, size: 30),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 8),
-                      child: Column(
-                        children: [
-                          Text(
-                            item.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.outfit(
-                              color: Colors.white,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.star_rounded,
-                                  color: Colors.amber, size: 10),
-                              const SizedBox(width: 3),
-                              Text(
-                                item.rating?.toStringAsFixed(1) ?? '0.0',
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+        child: AspectRatio(
+          aspectRatio: 2 / 3,
+          child: CachedNetworkImage(
+            imageUrl: item.posterUrl ?? '',
+            fit: BoxFit.cover,
+            fadeInDuration: Duration.zero,
+            fadeOutDuration: Duration.zero,
+            placeholder: (_, __) => const AppBlurHashPlaceholder(),
+            errorWidget: (_, __, ___) => const AppBlurHashPlaceholder(
+              fallbackIcon: Icon(Icons.movie, color: Colors.white24, size: 30),
             ),
           ),
         ),
@@ -1270,133 +1279,96 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       children: [
         _buildSectionHeader(title),
         const SizedBox(height: 0),
-        AnimationLimiter(
-          child: SizedBox(
-            height: 230,
-            child: ListView.separated(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              scrollDirection: Axis.horizontal,
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              addRepaintBoundaries: false,
-              addSemanticIndexes: false,
-              itemBuilder: (context, index) =>
-                  _buildKDramaCard(items[index], index),
-            ),
+        SizedBox(
+          height: 190,
+          child: ListView.separated(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            addSemanticIndexes: false,
+            itemBuilder: (context, index) => _buildKDramaCard(items[index]),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildKDramaCard(KDramaItem item, int index) {
-    return AnimationConfiguration.staggeredList(
-      position: index,
-      duration: const Duration(milliseconds: 350),
-      child: SlideAnimation(
-        horizontalOffset: 30.0,
-        child: FadeInAnimation(
-          child: _PressScaleCard(
-            onTap: () {
-              final imdbItem = ImdbSearchResult(
-                id: item.id,
-                title: item.title,
-                posterUrl: item.posterUrl ?? '',
-                year: item.releaseYear?.toString() ?? '',
-                kind: 'tvseries',
-                rating: item.rating?.toStringAsFixed(1),
-                description: 'Episodes: ${item.episodes ?? "N/A"}',
-              );
-              _handleMediaTap(imdbItem);
-            },
-            child: Container(
-              width: 120,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white.withValues(alpha: 0.08),
-                    Colors.white.withValues(alpha: 0.03),
-                  ],
-                ),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.15),
-                  width: 1,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    AspectRatio(
-                      aspectRatio: 2 / 3,
-                      child: Hero(
-                        tag: 'media_poster_${item.id}',
-                        child: CachedNetworkImage(
-                          imageUrl: item.posterUrl ?? '',
-                          fit: BoxFit.cover,
-                          fadeInDuration: Duration.zero,
-                          fadeOutDuration: Duration.zero,
-                          placeholder: (_, __) => Container(
-                              color: Colors.white.withValues(alpha: 0.05)),
-                          errorWidget: (_, __, ___) => Container(
-                            color: Colors.white.withValues(alpha: 0.05),
-                            child: const Icon(Icons.movie,
-                                color: Colors.white24, size: 30),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 8),
-                      child: Column(
-                        children: [
-                          Text(
-                            item.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.outfit(
-                              color: Colors.white,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.star_rounded,
-                                  color: Colors.amber, size: 10),
-                              const SizedBox(width: 3),
-                              Text(
-                                item.rating?.toStringAsFixed(1) ?? '0.0',
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+  Widget _buildKDramaCard(KDramaItem item) {
+    final imdbItem = ImdbSearchResult(
+      id: item.id,
+      title: item.title,
+      posterUrl: item.posterUrl ?? '',
+      year: item.releaseYear?.toString() ?? '',
+      kind: 'tvseries',
+      rating: item.rating?.toStringAsFixed(1),
+      description: 'Episodes: ${item.episodes ?? "N/A"}',
+    );
+    return _PressScaleCard(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        _handleMediaTap(imdbItem);
+      },
+      onDoubleTap: () {
+        HapticFeedback.mediumImpact();
+        final appState = ref.read(appNotifierProvider);
+        unawaited(
+            toggleWatchlistWithFeedback(context, ref, appState, imdbItem));
+      },
+      onLongPress: () {
+        _showCardContextMenu(
+          context,
+          title: item.title,
+          rating: item.rating?.toStringAsFixed(1),
+          year: item.releaseYear?.toString() ?? '',
+          kind: 'tvseries',
+          onAddWatchlist: () {
+            final appState = ref.read(appNotifierProvider);
+            unawaited(addToWatchlistIfMissing(
+              context,
+              ref,
+              appState,
+              imdbItem,
+            ));
+            Navigator.pop(context);
+          },
+        );
+      },
+      child: Container(
+        width: 120,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withValues(alpha: 0.08),
+              Colors.white.withValues(alpha: 0.03),
+            ],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: AspectRatio(
+          aspectRatio: 2 / 3,
+          child: Hero(
+            tag: 'media_poster_${item.id}',
+            child: CachedNetworkImage(
+              imageUrl: item.posterUrl ?? '',
+              fit: BoxFit.cover,
+              fadeInDuration: Duration.zero,
+              fadeOutDuration: Duration.zero,
+              placeholder: (_, __) => const AppBlurHashPlaceholder(),
+              errorWidget: (_, __, ___) => const AppBlurHashPlaceholder(
+                fallbackIcon:
+                    Icon(Icons.movie, color: Colors.white24, size: 30),
               ),
             ),
           ),
@@ -1413,229 +1385,168 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       children: [
         _buildSectionHeader('Continue Watching'),
         const SizedBox(height: 0),
-        AnimationLimiter(
-          child: SizedBox(
-            height: 230,
-            child: ListView.separated(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              scrollDirection: Axis.horizontal,
-              itemCount: continueWatching.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 12),
-              addRepaintBoundaries: false,
-              addSemanticIndexes: false,
-              itemBuilder: (context, index) {
-                final wp = continueWatching[index];
-                final progress = wp.duration > 0
-                    ? (wp.position / wp.duration).clamp(0.0, 1.0)
-                    : 0.0;
-                final isTv = wp.media.kind != 'movie';
-                final remainMin = wp.duration > 0
-                    ? ((wp.duration - wp.position) / 60000).ceil()
-                    : 0;
+        SizedBox(
+          height: 190,
+          child: ListView.separated(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            scrollDirection: Axis.horizontal,
+            itemCount: continueWatching.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            addSemanticIndexes: false,
+            itemBuilder: (context, index) {
+              final wp = continueWatching[index];
+              final progress = wp.duration > 0
+                  ? (wp.position / wp.duration).clamp(0.0, 1.0)
+                  : 0.0;
+              final remainMin = wp.duration > 0
+                  ? ((wp.duration - wp.position) / 60000).ceil()
+                  : 0;
 
-                return AnimationConfiguration.staggeredList(
-                  position: index,
-                  duration: const Duration(milliseconds: 350),
-                  child: SlideAnimation(
-                    horizontalOffset: 20.0,
-                    child: FadeInAnimation(
-                      child: _PressScaleCard(
-                        onTap: () {
-                          HapticFeedback.lightImpact();
-                          _handleMediaTap(wp.media);
-                        },
-                        onDoubleTap: () {
-                          HapticFeedback.mediumImpact();
-                          toggleWatchlistWithFeedback(
-                            context,
-                            context.read<AppProvider>(),
-                            wp.media,
-                          );
-                        },
-                        onLongPress: () {
-                          _showContinueWatchingContextMenu(
-                            context,
-                            title: wp.media.title,
-                            mediaId: wp.media.id,
-                          );
-                        },
-                        child: Container(
-                          width: 120,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(8),
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                Colors.white.withValues(alpha: 0.08),
-                                Colors.white.withValues(alpha: 0.03),
-                              ],
+              return _PressScaleCard(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  _handleMediaTap(wp.media);
+                },
+                onDoubleTap: () {
+                  HapticFeedback.mediumImpact();
+                  final appState = ref.read(appNotifierProvider);
+                  unawaited(toggleWatchlistWithFeedback(
+                    context,
+                    ref,
+                    appState,
+                    wp.media,
+                  ));
+                },
+                onLongPress: () {
+                  _showContinueWatchingContextMenu(
+                    context,
+                    title: wp.media.title,
+                    mediaId: wp.media.id,
+                    rating: wp.media.rating,
+                    year: wp.media.year,
+                    kind: wp.media.kind,
+                  );
+                },
+                child: Container(
+                  width: 120,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withValues(alpha: 0.08),
+                        Colors.white.withValues(alpha: 0.03),
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: AspectRatio(
+                    aspectRatio: 2 / 3,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Hero(
+                          tag:
+                              'hero_watchlist_${wp.media.id}_${wp.media.posterUrl.hashCode}',
+                          child: CachedNetworkImage(
+                            imageUrl: wp.media.posterUrl,
+                            fit: BoxFit.cover,
+                            fadeInDuration: Duration.zero,
+                            fadeOutDuration: Duration.zero,
+                            placeholder: (_, __) =>
+                                const AppBlurHashPlaceholder(),
+                            errorWidget: (_, __, ___) =>
+                                const AppBlurHashPlaceholder(
+                              fallbackIcon: Icon(Icons.movie,
+                                  color: Colors.white24, size: 30),
                             ),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.15),
-                              width: 1,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              AspectRatio(
-                                aspectRatio: 2 / 3,
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    Hero(
-                                      tag:
-                                          'hero_watchlist_${wp.media.id}_${wp.media.posterUrl.hashCode}',
-                                      child: CachedNetworkImage(
-                                        imageUrl: wp.media.posterUrl,
-                                        fit: BoxFit.cover,
-                                        fadeInDuration: Duration.zero,
-                                        fadeOutDuration: Duration.zero,
-                                        placeholder: (_, __) => Container(
-                                            color: Colors.white
-                                                .withValues(alpha: 0.05)),
-                                        errorWidget: (_, __, ___) => Container(
-                                          color: Colors.white
-                                              .withValues(alpha: 0.05),
-                                          child: const Icon(Icons.movie,
-                                              color: Colors.white24, size: 30),
-                                        ),
-                                      ),
-                                    ),
-                                    Positioned(
-                                      left: 0,
-                                      right: 0,
-                                      bottom: 0,
-                                      child: LayoutBuilder(
-                                        builder: (ctx, constraints) {
-                                          final filled =
-                                              constraints.maxWidth * progress;
-                                          return Stack(
-                                            children: [
-                                              Container(
-                                                  height: 2,
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.1)),
-                                              Container(
-                                                width: filled,
-                                                height: 2,
-                                                decoration: BoxDecoration(
-                                                  gradient: LinearGradient(
-                                                    begin: Alignment.centerLeft,
-                                                    end: Alignment.centerRight,
-                                                    colors: [
-                                                      AppTheme.primaryColor
-                                                          .withValues(
-                                                              alpha: 0.7),
-                                                      AppTheme.primaryColor,
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                    Center(
-                                      child: Container(
-                                        width: 40,
-                                        height: 40,
-                                        decoration: BoxDecoration(
-                                          color: Colors.black
-                                              .withValues(alpha: 0.6),
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: Colors.white
-                                                .withValues(alpha: 0.4),
-                                            width: 1.2,
-                                          ),
-                                        ),
-                                        child: Icon(Icons.play_arrow_rounded,
-                                            color: Colors.white, size: 20),
-                                      ),
-                                    ),
-                                    if (remainMin > 0)
-                                      Positioned(
-                                        top: 6,
-                                        right: 6,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 5, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: Colors.black
-                                                .withValues(alpha: 0.6),
-                                            borderRadius:
-                                                BorderRadius.circular(4),
-                                          ),
-                                          child: Text(
-                                            '${remainMin}m',
-                                            style: GoogleFonts.poppins(
-                                              color: Colors.white,
-                                              fontSize: 8,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 8),
-                                child: Column(
-                                  children: [
-                                    Text(
-                                      wp.media.title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
-                                      style: GoogleFonts.outfit(
-                                        color: Colors.white,
-                                        fontSize: 10.5,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          isTv ? 'SERIES' : 'MOVIE',
-                                          style: GoogleFonts.outfit(
-                                            color: AppTheme.primaryColor
-                                                .withValues(alpha: 0.8),
-                                            fontSize: 7.5,
-                                            fontWeight: FontWeight.w900,
-                                            letterSpacing: 0.5,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
                           ),
                         ),
-                      ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: LayoutBuilder(
+                            builder: (ctx, constraints) {
+                              final filled = constraints.maxWidth * progress;
+                              return Stack(
+                                children: [
+                                  Container(
+                                      height: 3,
+                                      color:
+                                          Colors.white.withValues(alpha: 0.1)),
+                                  Container(
+                                    width: filled,
+                                    height: 3,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.centerLeft,
+                                        end: Alignment.centerRight,
+                                        colors: [
+                                          AppTheme.primaryColor
+                                              .withValues(alpha: 0.7),
+                                          AppTheme.primaryColor,
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                        Center(
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.4),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.3),
+                                width: 1.0,
+                              ),
+                            ),
+                            child: const Icon(Icons.play_arrow_rounded,
+                                color: Colors.white, size: 22),
+                          ),
+                        ),
+                        if (remainMin > 0)
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.6),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '${remainMin}m',
+                                style: GoogleFonts.poppins(
+                                  color: Colors.white,
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                );
-              },
-            ),
+                ),
+              );
+            },
           ),
         ),
       ],
@@ -1643,83 +1554,68 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Widget _buildWatchlistSection() {
-    return provider_pkg.Consumer<AppProvider>(
-      builder: (context, provider, _) {
-        final watchlist = provider.watchlist;
-        if (watchlist.isEmpty) return const SizedBox.shrink();
+    final provider = ref.watch(appNotifierProvider);
+    final watchlist = provider.watchlist;
+    if (watchlist.isEmpty) return const SizedBox.shrink();
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSectionHeader(
-              'Watchlist',
-              trailing: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const WatchlistScreen(),
-                      ),
-                    );
-                  },
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    child: Row(
-                      children: [
-                        Text(
-                          'VIEW ALL',
-                          style: GoogleFonts.outfit(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Icon(
-                          Icons.arrow_forward_ios_rounded,
-                          color: Colors.white.withValues(alpha: 0.4),
-                          size: 10,
-                        ),
-                      ],
-                    ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader(
+          'Watchlist',
+          trailing: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () {
+                unawaited(Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const WatchlistScreen(),
                   ),
-                ),
-              ),
-            ),
-            AnimationLimiter(
-              child: SizedBox(
-                height: 230,
-                child: ListView.separated(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: watchlist.length > 10 ? 10 : watchlist.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  addRepaintBoundaries: false,
-                  addSemanticIndexes: false,
-                  itemBuilder: (context, index) {
-                    final item = watchlist[index];
-                    return AnimationConfiguration.staggeredList(
-                      position: index,
-                      duration: const Duration(milliseconds: 350),
-                      child: SlideAnimation(
-                        horizontalOffset: 30.0,
-                        child: FadeInAnimation(
-                          child: _buildWatchlistCard(item),
-                        ),
+                ));
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                child: Row(
+                  children: [
+                    Text(
+                      'VIEW ALL',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2,
                       ),
-                    );
-                  },
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      color: Colors.white.withValues(alpha: 0.4),
+                      size: 10,
+                    ),
+                  ],
                 ),
               ),
             ),
-          ],
-        );
-      },
+          ),
+        ),
+        SizedBox(
+          height: 190,
+          child: ListView.separated(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            scrollDirection: Axis.horizontal,
+            itemCount: watchlist.length > 10 ? 10 : watchlist.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            addSemanticIndexes: false,
+            itemBuilder: (context, index) {
+              final item = watchlist[index];
+              return _buildWatchlistCard(item);
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -1748,10 +1644,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               Colors.white.withValues(alpha: 0.03),
             ],
           ),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.15),
-            width: 1,
-          ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.3),
@@ -1761,66 +1653,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ],
         ),
         clipBehavior: Clip.antiAlias,
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              AspectRatio(
-                aspectRatio: 2 / 3,
-                child: Hero(
-                  tag: 'hero_search_${item.id}_${item.posterUrl.hashCode}',
-                  child: CachedNetworkImage(
-                    imageUrl: item.posterUrl,
-                    fit: BoxFit.cover,
-                    fadeInDuration: Duration.zero,
-                    fadeOutDuration: Duration.zero,
-                    placeholder: (_, __) =>
-                        Container(color: Colors.white.withValues(alpha: 0.05)),
-                    errorWidget: (_, __, ___) => Container(
-                      color: Colors.white.withValues(alpha: 0.05),
-                      child: const Icon(Icons.movie,
-                          color: Colors.white24, size: 30),
-                    ),
-                  ),
-                ),
+        child: AspectRatio(
+          aspectRatio: 2 / 3,
+          child: Hero(
+            tag: 'hero_search_${item.id}_${item.posterUrl.hashCode}',
+            child: CachedNetworkImage(
+              imageUrl: item.posterUrl,
+              fit: BoxFit.cover,
+              fadeInDuration: Duration.zero,
+              fadeOutDuration: Duration.zero,
+              placeholder: (_, __) =>
+                  Container(color: Colors.white.withValues(alpha: 0.05)),
+              errorWidget: (_, __, ___) => const AppBlurHashPlaceholder(
+                fallbackIcon:
+                    Icon(Icons.movie, color: Colors.white24, size: 30),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                child: Column(
-                  children: [
-                    Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.star_rounded,
-                            color: Colors.amber, size: 10),
-                        const SizedBox(width: 3),
-                        Text(
-                          item.rating ?? '0.0',
-                          style: GoogleFonts.outfit(
-                            color: Colors.white.withValues(alpha: 0.9),
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1838,31 +1686,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               children: [
                 _buildSectionHeader(title),
                 const SizedBox(height: 0),
-                AnimationLimiter(
-                  child: SizedBox(
-                    height: 230,
-                    child: ListView.separated(
-                      physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      scrollDirection: Axis.horizontal,
-                      itemCount: genreResult.popularMovies.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
-                      addRepaintBoundaries: false,
-                      addSemanticIndexes: false,
-                      itemBuilder: (context, index) {
-                        final item = genreResult.popularMovies[index];
-                        return AnimationConfiguration.staggeredList(
-                          position: index,
-                          duration: const Duration(milliseconds: 350),
-                          child: SlideAnimation(
-                            horizontalOffset: 30.0,
-                            child: FadeInAnimation(
-                              child: _buildGenreMediaCard(item),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                SizedBox(
+                  height: 190,
+                  child: ListView.separated(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: genreResult.popularMovies.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    addSemanticIndexes: false,
+                    itemBuilder: (context, index) {
+                      final item = genreResult.popularMovies[index];
+                      return _buildGenreMediaCard(item);
+                    },
                   ),
                 ),
               ],
@@ -1886,7 +1722,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Widget _buildGenreMediaCard(GenreInterestItem item) {
-    final appProvider = context.read<AppProvider>();
+    final appState = ref.read(appNotifierProvider);
     final imdbItem = ImdbSearchResult(
       id: item.imdbId,
       title: item.title,
@@ -1903,119 +1739,71 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       },
       onDoubleTap: () {
         HapticFeedback.mediumImpact();
-        toggleWatchlistWithFeedback(context, appProvider, imdbItem);
+        toggleWatchlistWithFeedback(context, ref, appState, imdbItem);
+      },
+      onLongPress: () {
+        _showCardContextMenu(
+          context,
+          title: item.title,
+          rating: item.rating.toStringAsFixed(1),
+          year: item.year.toString(),
+          kind: item.mediaType == 'movie' ? 'movie' : 'tvseries',
+          onAddWatchlist: () {
+            final appState = ref.read(appNotifierProvider);
+            unawaited(addToWatchlistIfMissing(
+              context,
+              ref,
+              appState,
+              imdbItem,
+            ));
+            Navigator.pop(context);
+          },
+        );
       },
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            AspectRatio(
-              aspectRatio: 2 / 3,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  CachedNetworkImage(
-                    imageUrl: item.poster ?? '',
-                    fit: BoxFit.cover,
-                    fadeInDuration: Duration.zero,
-                    fadeOutDuration: Duration.zero,
-                    placeholder: (_, __) =>
-                        Container(color: Colors.white.withValues(alpha: 0.05)),
-                    errorWidget: (_, __, ___) => Container(
-                      color: Colors.white.withValues(alpha: 0.05),
-                      child: const Icon(Icons.movie,
-                          color: Colors.white24, size: 30),
-                    ),
-                  ),
-                  // IN LIST badge
-                  if (appProvider.isInWatchlist(imdbItem.id))
-                    Positioned(
-                      top: 6,
-                      right: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primaryColor,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          'IN LIST',
-                          style: GoogleFonts.outfit(
-                            color: Colors.black,
-                            fontSize: 8,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.7),
-                  ],
+        child: AspectRatio(
+          aspectRatio: 2 / 3,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CachedNetworkImage(
+                imageUrl: item.poster ?? '',
+                fit: BoxFit.cover,
+                fadeInDuration: Duration.zero,
+                fadeOutDuration: Duration.zero,
+                placeholder: (_, __) =>
+                    Container(color: Colors.white.withValues(alpha: 0.05)),
+                errorWidget: (_, __, ___) => const AppBlurHashPlaceholder(
+                  fallbackIcon:
+                      Icon(Icons.movie, color: Colors.white24, size: 30),
                 ),
               ),
-            ),
-            Positioned(
-              left: 8,
-              right: 8,
-              bottom: 8,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w700,
+              // IN LIST badge
+              if (appState.isInWatchlist(imdbItem.id))
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'IN LIST',
+                      style: GoogleFonts.outfit(
+                        color: Colors.black,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      if (item.mediaType == 'tvseries')
-                        Expanded(
-                          child: Text(
-                            'S1:E1',
-                            style: GoogleFonts.outfit(
-                              color:
-                                  AppTheme.primaryColor.withValues(alpha: 0.9),
-                              fontSize: 8,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        )
-                      else
-                        const Icon(Icons.star_rounded,
-                            color: Colors.amber, size: 10),
-                      if (item.mediaType == 'movie') const SizedBox(width: 3),
-                      Text(
-                        item.rating.toStringAsFixed(1),
-                        style: GoogleFonts.outfit(
-                          color: Colors.white.withValues(alpha: 0.9),
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -2023,17 +1811,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 }
 
 // Featured Carousel Widget as Separate StatefulWidget
-class _FeaturedCarouselWidget extends StatefulWidget {
+class _FeaturedCarouselWidget extends ConsumerStatefulWidget {
   final List<RiveStreamMedia> items;
 
   const _FeaturedCarouselWidget({required this.items});
 
   @override
-  State<_FeaturedCarouselWidget> createState() =>
+  ConsumerState<_FeaturedCarouselWidget> createState() =>
       _FeaturedCarouselWidgetState();
 }
 
-class _FeaturedCarouselWidgetState extends State<_FeaturedCarouselWidget> {
+class _FeaturedCarouselWidgetState
+    extends ConsumerState<_FeaturedCarouselWidget> {
   int _currentCarouselIndex = 0;
 
   void _handleRiveMediaNavigation(RiveStreamMedia item, BuildContext context) {
@@ -2129,8 +1918,9 @@ class _FeaturedCarouselWidgetState extends State<_FeaturedCarouselWidget> {
           description: item.overview,
           backdropUrl: item.fullBackdropUrl,
         );
-        final appProvider = context.read<AppProvider>();
-        toggleWatchlistWithFeedback(context, appProvider, imdbItem);
+        final appState = ref.read(appNotifierProvider);
+        unawaited(
+            toggleWatchlistWithFeedback(context, ref, appState, imdbItem));
       },
       child: Container(
         decoration: BoxDecoration(
@@ -2157,11 +1947,13 @@ class _FeaturedCarouselWidgetState extends State<_FeaturedCarouselWidget> {
                   alignment: Alignment.topCenter,
                   fadeInDuration: Duration.zero,
                   fadeOutDuration: Duration.zero,
-                  placeholder: (_, __) => Container(color: AppTheme.cardColor),
-                  errorWidget: (_, __, ___) => Container(
-                    color: AppTheme.cardColor,
-                    child:
-                        const Icon(Icons.broken_image, color: Colors.white24),
+                  placeholder: (_, __) => const AppBlurHashPlaceholder(
+                    backgroundColor: AppTheme.cardColor,
+                  ),
+                  errorWidget: (_, __, ___) => const AppBlurHashPlaceholder(
+                    backgroundColor: AppTheme.cardColor,
+                    fallbackIcon:
+                        Icon(Icons.broken_image, color: Colors.white24),
                   ),
                 ),
               ),

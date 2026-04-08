@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../providers/riverpod_compat.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../models/torrent.dart';
@@ -13,16 +13,17 @@ import '../../services/torrent_scraper_service.dart';
 import '../../theme/app_theme.dart';
 import '../player/player_screen.dart';
 
-class TorrentSearchScreen extends StatefulWidget {
+class TorrentSearchScreen extends ConsumerStatefulWidget {
   final String? initialQuery;
 
   const TorrentSearchScreen({super.key, this.initialQuery});
 
   @override
-  State<TorrentSearchScreen> createState() => _TorrentSearchScreenState();
+  ConsumerState<TorrentSearchScreen> createState() =>
+      _TorrentSearchScreenState();
 }
 
-class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
+class _TorrentSearchScreenState extends ConsumerState<TorrentSearchScreen> {
   final _scraperService = TorrentScraperService();
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
@@ -47,8 +48,9 @@ class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadRecentSearches();
-      final provider = context.read<AppProvider>();
-      final baseUrl = provider.getSetting<String>('torrent_base_url');
+      final baseUrl = ref
+          .read(appNotifierProvider.notifier)
+          .getSetting<String>('torrent_base_url');
       if (baseUrl != null && baseUrl.isNotEmpty) {
         _scraperService.updateBaseUrl(baseUrl);
       }
@@ -283,7 +285,7 @@ class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
               ),
               if (_searchController.text.isNotEmpty)
                 IconButton(
-                  icon: Icon(Icons.arrow_forward_rounded,
+                  icon: const Icon(Icons.arrow_forward_rounded,
                       color: AppTheme.primaryColor),
                   onPressed: _performSearch,
                 ),
@@ -457,7 +459,7 @@ class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline_rounded,
+              const Icon(Icons.error_outline_rounded,
                   size: 48, color: AppTheme.errorColor),
               const SizedBox(height: 16),
               Text(
@@ -707,7 +709,7 @@ class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
   // Legacy helper removed or replaced
 
   void _openTorrentDetails(TorrentEntry entry) {
-    Navigator.push(
+    unawaited(Navigator.push(
       context,
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
@@ -719,7 +721,7 @@ class _TorrentSearchScreenState extends State<TorrentSearchScreen> {
           return FadeTransition(opacity: animation, child: child);
         },
       ),
-    );
+    ));
   }
 }
 
@@ -829,7 +831,7 @@ class _TorrentDetailsScreenState extends State<_TorrentDetailsScreen> {
                         const Center(child: CircularProgressIndicator())
                       else if (_error != null)
                         Text('Error: $_error',
-                            style: TextStyle(color: AppTheme.errorColor))
+                            style: const TextStyle(color: AppTheme.errorColor))
                       else if (_downloads.isEmpty)
                         Text('No download links found.',
                             style: GoogleFonts.outfit(color: Colors.white54))
@@ -863,7 +865,7 @@ class _TorrentDetailsScreenState extends State<_TorrentDetailsScreen> {
           ),
         ),
         subtitle: download.size.isNotEmpty
-            ? Text(download.size, style: TextStyle(color: Colors.white54))
+            ? Text(download.size, style: const TextStyle(color: Colors.white54))
             : null,
         trailing: Container(
           padding: const EdgeInsets.all(8),
@@ -871,7 +873,7 @@ class _TorrentDetailsScreenState extends State<_TorrentDetailsScreen> {
             color: AppTheme.primaryColor.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
-          child: Icon(Icons.rocket_launch_rounded,
+          child: const Icon(Icons.rocket_launch_rounded,
               color: AppTheme.primaryColor, size: 20),
         ),
         onTap: () => _handleDownload(download),

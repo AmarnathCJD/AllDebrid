@@ -1,6 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import '../../providers/riverpod_compat.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import '../../providers/providers.dart';
 import '../../theme/app_theme.dart';
@@ -17,25 +19,25 @@ import '../../widgets/widgets.dart';
 import 'dart:ui';
 import '../torrents/discover_screen.dart';
 
-class MagnetsScreen extends StatefulWidget {
+class MagnetsScreen extends ConsumerStatefulWidget {
   const MagnetsScreen({super.key});
 
   @override
-  State<MagnetsScreen> createState() => _MagnetsScreenState();
+  ConsumerState<MagnetsScreen> createState() => _MagnetsScreenState();
 }
 
-class _MagnetsScreenState extends State<MagnetsScreen> {
+class _MagnetsScreenState extends ConsumerState<MagnetsScreen> {
   int _selectedIndex = 0;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MagnetProvider>().fetchMagnets();
+      unawaited(ref.read(magnetNotifierProvider.notifier).fetchMagnets());
     });
   }
 
-  List<dynamic> _getFilteredMagnets(MagnetProvider provider) {
+  List<dynamic> _getFilteredMagnets(MagnetState provider) {
     if (_selectedIndex == 0) return provider.magnets;
     if (_selectedIndex == 1) {
       return provider.magnets.where((m) => m.statusCode != 4).toList();
@@ -45,23 +47,20 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final provider = ref.watch(magnetNotifierProvider);
+    final filteredMagnets = _getFilteredMagnets(provider);
+
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       body: SafeArea(
-        child: Consumer<MagnetProvider>(
-          builder: (context, provider, _) {
-            final filteredMagnets = _getFilteredMagnets(provider);
-
-            return Column(
-              children: [
-                _buildHeader(provider),
-                _buildSegmentedTabs(provider),
-                Expanded(
-                  child: _buildList(filteredMagnets, provider),
-                ),
-              ],
-            );
-          },
+        child: Column(
+          children: [
+            _buildHeader(provider),
+            _buildSegmentedTabs(provider),
+            Expanded(
+              child: _buildList(filteredMagnets, provider),
+            ),
+          ],
         ),
       ),
       floatingActionButton: FloatingActionButton(
@@ -73,13 +72,13 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
     );
   }
 
-  Widget _buildHeader(MagnetProvider provider) {
+  Widget _buildHeader(MagnetState provider) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Expanded(
+          const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -92,7 +91,7 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
                     letterSpacing: 1.5,
                   ),
                 ),
-                const Text(
+                Text(
                   'MAGNETS',
                   style: TextStyle(
                     fontSize: 28,
@@ -112,10 +111,10 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
             child: Tooltip(
               message: 'Discover',
               child: InkWell(
-                onTap: () => Navigator.push(
+                onTap: () => unawaited(Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const DiscoverScreen()),
-                ),
+                )),
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
                   width: 36,
@@ -124,7 +123,7 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
                     color: AppTheme.primaryColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(
+                  child: const Icon(
                     Icons.explore_rounded,
                     color: AppTheme.primaryColor,
                     size: 18,
@@ -165,7 +164,7 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
     );
   }
 
-  Widget _buildSegmentedTabs(MagnetProvider provider) {
+  Widget _buildSegmentedTabs(MagnetState provider) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
@@ -267,7 +266,7 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
     );
   }
 
-  Widget _buildList(List magnets, MagnetProvider provider) {
+  Widget _buildList(List magnets, MagnetState provider) {
     if (magnets.isEmpty) {
       return Center(
         child: Column(
@@ -278,7 +277,7 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
             const SizedBox(height: 16),
             Text(
               'No items found'.toUpperCase(),
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 color: AppTheme.textMuted,
@@ -291,7 +290,7 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
     }
 
     return RefreshIndicator(
-      onRefresh: () => provider.fetchMagnets(),
+      onRefresh: () => ref.read(magnetNotifierProvider.notifier).fetchMagnets(),
       color: AppTheme.primaryColor,
       backgroundColor: AppTheme.cardColor,
       child: ListView.builder(
@@ -302,17 +301,16 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
           return _MagnetCard(
             magnet: magnet,
             index: index,
-            onTap: () => _showMagnetBottomSheet(context, magnet, provider),
-            onDelete: () => _confirmDelete(magnet, provider),
+            onTap: () => _showMagnetBottomSheet(context, magnet),
+            onDelete: () => _confirmDelete(magnet),
           );
         },
       ),
     );
   }
 
-  void _showMagnetBottomSheet(
-      BuildContext context, dynamic magnet, MagnetProvider provider) {
-    showModalBottomSheet(
+  void _showMagnetBottomSheet(BuildContext context, dynamic magnet) {
+    unawaited(showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -321,26 +319,28 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
         onNavigateToFull: () {},
         onDelete: () {
           Navigator.pop(context);
-          _confirmDelete(magnet, provider);
+          _confirmDelete(magnet);
         },
       ),
-    );
+    ));
   }
 
-  Future<void> _confirmDelete(dynamic magnet, MagnetProvider provider) async {
+  Future<void> _confirmDelete(dynamic magnet) async {
     final confirm = await _showModernDeleteDialog(context, magnet.filename);
     if (confirm == true) {
-      provider.deleteMagnet(magnet.id.toString());
+      ref
+          .read(magnetNotifierProvider.notifier)
+          .deleteMagnet(magnet.id.toString());
     }
   }
 
-  Future<void> _confirmDeleteAll(MagnetProvider provider) async {
+  Future<void> _confirmDeleteAll(MagnetState provider) async {
     if (provider.magnets.isEmpty) return;
 
     final confirm = await _showModernDeleteDialog(context, 'ALL MAGNETS');
     if (confirm == true) {
       for (var m in provider.magnets) {
-        provider.deleteMagnet(m.id.toString());
+        ref.read(magnetNotifierProvider.notifier).deleteMagnet(m.id.toString());
       }
     }
   }
@@ -497,7 +497,7 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
 
   void _showAddMagnetDialog() {
     final controller = TextEditingController();
-    showDialog(
+    unawaited(showDialog(
       context: context,
       builder: (context) => Dialog(
         child: Padding(
@@ -506,7 +506,7 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              const Text(
                 'ADD MAGNET',
                 style: TextStyle(
                   fontSize: 16,
@@ -537,8 +537,8 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
                     onPressed: () async {
                       if (controller.text.trim().isNotEmpty) {
                         Navigator.pop(context);
-                        await context
-                            .read<MagnetProvider>()
+                        await ref
+                            .read(magnetNotifierProvider.notifier)
                             .uploadMagnet(controller.text.trim());
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -556,7 +556,7 @@ class _MagnetsScreenState extends State<MagnetsScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 
@@ -814,7 +814,7 @@ class _MagnetCard extends StatelessWidget {
                                     color: AppTheme.errorColor
                                         .withValues(alpha: 0.2)),
                               ),
-                              child: Icon(Icons.delete_outline,
+                              child: const Icon(Icons.delete_outline,
                                   size: 18, color: AppTheme.errorColor),
                             ),
                           ),
@@ -902,8 +902,7 @@ class _MagnetCard extends StatelessWidget {
   }
 }
 
-// Bottom Sheet for Magnet Files Quick View
-class _MagnetBottomSheet extends StatefulWidget {
+class _MagnetBottomSheet extends ConsumerStatefulWidget {
   final dynamic magnet;
   final VoidCallback onNavigateToFull;
   final VoidCallback onDelete;
@@ -915,10 +914,10 @@ class _MagnetBottomSheet extends StatefulWidget {
   });
 
   @override
-  State<_MagnetBottomSheet> createState() => _MagnetBottomSheetState();
+  ConsumerState<_MagnetBottomSheet> createState() => _MagnetBottomSheetState();
 }
 
-class _MagnetBottomSheetState extends State<_MagnetBottomSheet> {
+class _MagnetBottomSheetState extends ConsumerState<_MagnetBottomSheet> {
   bool _isLoading = true;
   List<FlatFile> _files = [];
   Set<String> _selectedFiles = {};
@@ -944,8 +943,8 @@ class _MagnetBottomSheetState extends State<_MagnetBottomSheet> {
     });
 
     try {
-      final files = await context
-          .read<MagnetProvider>()
+      final files = await ref
+          .read(magnetNotifierProvider.notifier)
           .getMagnetFiles(widget.magnet.id.toString());
       if (files != null) {
         _files = flattenMagnetFiles(files);
@@ -978,7 +977,7 @@ class _MagnetBottomSheetState extends State<_MagnetBottomSheet> {
   void _showMagnetLinkModal() {
     final cleanQuery = cleanFilename(widget.magnet.filename);
 
-    showModalBottomSheet(
+    unawaited(showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -986,7 +985,7 @@ class _MagnetBottomSheetState extends State<_MagnetBottomSheet> {
         initialQuery: cleanQuery,
         onSelect: _linkAllFiles,
       ),
-    );
+    ));
   }
 
   Future<void> _linkAllFiles(ImdbSearchResult result) async {
@@ -1075,16 +1074,16 @@ class _MagnetBottomSheetState extends State<_MagnetBottomSheet> {
   Future<void> _downloadSelected() async {
     if (_selectedFiles.isEmpty) return;
 
-    final magnetProvider = context.read<MagnetProvider>();
-    final downloadProvider = context.read<DownloadProvider>();
+    final magnetNotifier = ref.read(magnetNotifierProvider.notifier);
+    final downloadNotifier = ref.read(downloadNotifierProvider.notifier);
     int downloaded = 0;
 
     for (final link in _selectedFiles) {
       final file = _files.firstWhere((f) => f.link == link);
       try {
-        final directLink = await magnetProvider.unlockLink(link);
+        final directLink = await magnetNotifier.unlockLink(link);
         if (directLink != null) {
-          await downloadProvider.startDownload(
+          await downloadNotifier.startDownload(
             url: directLink,
             filename: file.name,
             totalSize: file.size,
@@ -1132,8 +1131,8 @@ class _MagnetBottomSheetState extends State<_MagnetBottomSheet> {
 
   Future<void> _handleFileTap(FlatFile file) async {
     try {
-      final magnetProvider = context.read<MagnetProvider>();
-      final directLink = await magnetProvider.unlockLink(file.link);
+      final magnetNotifier = ref.read(magnetNotifierProvider.notifier);
+      final directLink = await magnetNotifier.unlockLink(file.link);
 
       if (directLink == null) {
         throw Exception("Failed to unlock link.");
@@ -1143,7 +1142,7 @@ class _MagnetBottomSheetState extends State<_MagnetBottomSheet> {
 
       if (_isVideo(file.name)) {
         // Internal Player
-        Navigator.push(
+        unawaited(Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => PlayerScreen(
@@ -1151,19 +1150,19 @@ class _MagnetBottomSheetState extends State<_MagnetBottomSheet> {
               title: file.name,
             ),
           ),
-        );
+        ));
       } else if (_isAudio(file.name)) {
         // External Player (System)
         await launchUrl(Uri.parse(directLink),
             mode: LaunchMode.externalApplication);
       } else if (_isImage(file.name)) {
         // Internal Image Viewer
-        Navigator.push(
+        unawaited(Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => _FullScreenImage(url: directLink, title: file.name),
           ),
-        );
+        ));
       } else if (_isText(file.name)) {
         // Internal Text Viewer
         if (file.size > 5 * 1024 * 1024) {
@@ -1181,7 +1180,7 @@ class _MagnetBottomSheetState extends State<_MagnetBottomSheet> {
             options: Options(responseType: ResponseType.plain),
           );
           if (response.statusCode == 200 && response.data != null && mounted) {
-            showModalBottomSheet(
+            unawaited(showModalBottomSheet(
               context: context,
               isScrollControlled: true,
               backgroundColor: Colors.transparent,
@@ -1189,7 +1188,7 @@ class _MagnetBottomSheetState extends State<_MagnetBottomSheet> {
                 filename: file.name,
                 content: response.data!,
               ),
-            );
+            ));
           }
         } catch (e) {
           debugPrint("Fetch text error: $e");
@@ -1404,7 +1403,7 @@ class _MagnetBottomSheetState extends State<_MagnetBottomSheet> {
                       ? Center(
                           child: Text(
                             _error!,
-                            style: TextStyle(color: AppTheme.errorColor),
+                            style: const TextStyle(color: AppTheme.errorColor),
                           ),
                         )
                       : _files.isEmpty
@@ -1732,9 +1731,9 @@ class _TextFileViewer extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.85,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppTheme.surfaceColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
         children: [

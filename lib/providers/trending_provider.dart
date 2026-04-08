@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/rivestream_service.dart';
 
 class TrendingItem {
@@ -19,23 +19,49 @@ class TrendingItem {
   });
 }
 
-class TrendingProvider extends ChangeNotifier {
+/// Trending State
+class TrendingState {
+  final List<TrendingItem> trendingMovies;
+  final List<TrendingItem> trendingTVShows;
+  final List<TrendingItem> netflixShows;
+  final List<TrendingItem> amazonPrimeShows;
+  final bool isLoading;
+  final bool hasError;
+
+  const TrendingState({
+    this.trendingMovies = const [],
+    this.trendingTVShows = const [],
+    this.netflixShows = const [],
+    this.amazonPrimeShows = const [],
+    this.isLoading = false,
+    this.hasError = false,
+  });
+
+  TrendingState copyWith({
+    List<TrendingItem>? trendingMovies,
+    List<TrendingItem>? trendingTVShows,
+    List<TrendingItem>? netflixShows,
+    List<TrendingItem>? amazonPrimeShows,
+    bool? isLoading,
+    bool? hasError,
+  }) {
+    return TrendingState(
+      trendingMovies: trendingMovies ?? this.trendingMovies,
+      trendingTVShows: trendingTVShows ?? this.trendingTVShows,
+      netflixShows: netflixShows ?? this.netflixShows,
+      amazonPrimeShows: amazonPrimeShows ?? this.amazonPrimeShows,
+      isLoading: isLoading ?? this.isLoading,
+      hasError: hasError ?? this.hasError,
+    );
+  }
+}
+
+/// Trending Notifier
+class TrendingNotifier extends Notifier<TrendingState> {
   final _riveService = RiveStreamService();
 
-  List<TrendingItem> _trendingMovies = [];
-  List<TrendingItem> _trendingTVShows = [];
-  List<TrendingItem> _netflixShows = [];
-  List<TrendingItem> _amazonPrimeShows = [];
-
-  bool _isLoading = false;
-  bool _hasError = false;
-
-  List<TrendingItem> get trendingMovies => _trendingMovies;
-  List<TrendingItem> get trendingTVShows => _trendingTVShows;
-  List<TrendingItem> get netflixShows => _netflixShows;
-  List<TrendingItem> get amazonPrimeShows => _amazonPrimeShows;
-  bool get isLoading => _isLoading;
-  bool get hasError => _hasError;
+  @override
+  TrendingState build() => const TrendingState();
 
   Future<void> loadTrendingData() async {
     final cachedTrending = await _riveService.getCachedTrending(page: 1);
@@ -63,49 +89,35 @@ class TrendingProvider extends ChangeNotifier {
     bool hasCache = cachedTrending.isNotEmpty || cachedNetflixTV.isNotEmpty;
 
     if (hasCache) {
-      _trendingMovies = cachedTrending
-          .where((i) => i.mediaType == 'movie')
-          .map(_mapToTrendingItem)
-          .toList();
-      _trendingTVShows = cachedTrending
-          .where((i) => i.mediaType == 'tv')
-          .map(_mapToTrendingItem)
-          .toList();
-      _netflixShows = [...cachedNetflixTV, ...cachedNetflixMovies]
-          .map(_mapToTrendingItem)
-          .toList();
-      _amazonPrimeShows = [...cachedAmazonTV, ...cachedAmazonMovies]
-          .map(_mapToTrendingItem)
-          .toList();
-
-      notifyListeners();
+      state = state.copyWith(
+        trendingMovies: cachedTrending
+            .where((i) => i.mediaType == 'movie')
+            .map(_mapToTrendingItem)
+            .toList(),
+        trendingTVShows: cachedTrending
+            .where((i) => i.mediaType == 'tv')
+            .map(_mapToTrendingItem)
+            .toList(),
+        netflixShows: [...cachedNetflixTV, ...cachedNetflixMovies]
+            .map(_mapToTrendingItem)
+            .toList(),
+        amazonPrimeShows: [...cachedAmazonTV, ...cachedAmazonMovies]
+            .map(_mapToTrendingItem)
+            .toList(),
+      );
     } else {
-      _isLoading = true;
-      notifyListeners();
+      state = state.copyWith(isLoading: true);
     }
 
     // 2. Fetch fresh data in the background
     try {
       final trendingResults = await _riveService.getTrending(page: 1);
-      _trendingMovies = trendingResults
-          .where((item) => item.mediaType == 'movie')
-          .map(_mapToTrendingItem)
-          .toList();
-      _trendingTVShows = trendingResults
-          .where((item) => item.mediaType == 'tv')
-          .map(_mapToTrendingItem)
-          .toList();
-
       final netflixResults = await _riveService.getDiscoverContent(
           mediaType: 'tv', watchProviders: '8', monetizationTypes: 'flatrate');
       final netflixMoviesResults = await _riveService.getDiscoverContent(
           mediaType: 'movie',
           watchProviders: '8',
           monetizationTypes: 'flatrate');
-      _netflixShows = [...netflixResults, ...netflixMoviesResults]
-          .map(_mapToTrendingItem)
-          .toList();
-
       final amazonResults = await _riveService.getDiscoverContent(
           mediaType: 'tv',
           watchProviders: '119',
@@ -114,17 +126,32 @@ class TrendingProvider extends ChangeNotifier {
           mediaType: 'movie',
           watchProviders: '119',
           monetizationTypes: 'flatrate');
-      _amazonPrimeShows = [...amazonResults, ...amazonMoviesResults]
-          .map(_mapToTrendingItem)
-          .toList();
 
-      _hasError = false;
+      state = state.copyWith(
+        trendingMovies: trendingResults
+            .where((item) => item.mediaType == 'movie')
+            .map(_mapToTrendingItem)
+            .toList(),
+        trendingTVShows: trendingResults
+            .where((item) => item.mediaType == 'tv')
+            .map(_mapToTrendingItem)
+            .toList(),
+        netflixShows: [...netflixResults, ...netflixMoviesResults]
+            .map(_mapToTrendingItem)
+            .toList(),
+        amazonPrimeShows: [...amazonResults, ...amazonMoviesResults]
+            .map(_mapToTrendingItem)
+            .toList(),
+        hasError: false,
+        isLoading: false,
+      );
     } catch (e) {
       print('[TRENDING PROVIDER] Error loading trending data: $e');
-      if (!hasCache) _hasError = true;
-    } finally {
-      if (_isLoading) _isLoading = false;
-      notifyListeners();
+      if (!hasCache) {
+        state = state.copyWith(hasError: true, isLoading: false);
+      } else {
+        state = state.copyWith(isLoading: false);
+      }
     }
   }
 
@@ -139,3 +166,7 @@ class TrendingProvider extends ChangeNotifier {
     );
   }
 }
+
+final trendingNotifierProvider = NotifierProvider<TrendingNotifier, TrendingState>(() {
+  return TrendingNotifier();
+});

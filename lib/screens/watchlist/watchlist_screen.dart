@@ -1,23 +1,26 @@
+import 'dart:async';
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../providers/riverpod_compat.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../providers/app_provider.dart';
+import '../../providers/providers.dart';
 import '../../services/imdb_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/widgets.dart';
 import '../home/media_info_screen.dart';
 
-class WatchlistScreen extends StatefulWidget {
+class WatchlistScreen extends ConsumerStatefulWidget {
   const WatchlistScreen({super.key});
 
   @override
-  State<WatchlistScreen> createState() => _WatchlistScreenState();
+  ConsumerState<WatchlistScreen> createState() => _WatchlistScreenState();
 }
 
-class _WatchlistScreenState extends State<WatchlistScreen>
+class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
     with TickerProviderStateMixin {
   String _selectedCategory = 'All';
   late AnimationController _fabController;
@@ -52,77 +55,72 @@ class _WatchlistScreenState extends State<WatchlistScreen>
 
   @override
   Widget build(BuildContext context) {
+    final provider = ref.watch(appNotifierProvider);
+    final rawWatchlist = provider.watchlist;
+
+    var filteredWatchlist = rawWatchlist.where((item) {
+      final categoryMatch = _matchesCategory(item);
+      final searchMatch = _matchesSearch(item);
+      return categoryMatch && searchMatch;
+    }).toList();
+
+    filteredWatchlist = _applySorting(filteredWatchlist, provider);
+
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
-      body: Consumer<AppProvider>(
-        builder: (context, provider, _) {
-          final rawWatchlist = provider.watchlist;
-
-          var filteredWatchlist = rawWatchlist.where((item) {
-            final categoryMatch = _matchesCategory(item);
-            final searchMatch = _matchesSearch(item);
-            return categoryMatch && searchMatch;
-          }).toList();
-
-          filteredWatchlist = _applySorting(filteredWatchlist, provider);
-          return Column(
-            children: [
-              _buildHeader(provider),
-              Expanded(
-                child: ListView(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                  children: [
-                    _buildStatsRow(rawWatchlist),
-                    const SizedBox(height: 12),
-                    _buildSearchBar(),
-                    const SizedBox(height: 12),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
-                      child: Row(
-                        children: [
-                          Expanded(child: _buildCategories()),
-                          _buildSortButton(),
-                        ],
-                      ),
-                    ),
-                    if (filteredWatchlist.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 48),
-                        child: _buildEmptyState(),
-                      )
-                    else ...[
-                      _buildResultsSummary(filteredWatchlist.length),
-                      const SizedBox(height: 10),
-                      GridView.builder(
-                        padding: EdgeInsets.zero,
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          childAspectRatio: 0.60,
-                          crossAxisSpacing: 10,
-                          mainAxisSpacing: 10,
-                        ),
-                        itemCount: filteredWatchlist.length,
-                        itemBuilder: (context, index) {
-                          final item = filteredWatchlist[index];
-                          return _WatchlistGridItem(
-                            key: ValueKey(item.id),
-                            item: item,
-                            provider: provider,
-                            onDelete: () => _deleteItem(provider, item),
-                          );
-                        },
-                      ),
+      body: Column(
+        children: [
+          _buildHeader(provider),
+          Expanded(
+            child: ListView(
+              controller: _scrollController,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+              children: [
+                _buildSearchBar(),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
+                  child: Row(
+                    children: [
+                      Expanded(child: _buildCategories()),
+                      _buildSortButton(),
                     ],
-                  ],
+                  ),
                 ),
-              ),
-            ],
-          );
-        },
+                if (filteredWatchlist.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 48),
+                    child: _buildEmptyState(),
+                  )
+                else ...[
+                  _buildResultsSummary(filteredWatchlist.length),
+                  const SizedBox(height: 10),
+                  GridView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      childAspectRatio: 0.60,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                    ),
+                    itemCount: filteredWatchlist.length,
+                    itemBuilder: (context, index) {
+                      final item = filteredWatchlist[index];
+                      return _WatchlistGridItem(
+                        key: ValueKey(item.id),
+                        item: item,
+                        onDelete: () => _deleteItem(item),
+                      );
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FadeTransition(
         opacity: _fabController,
@@ -142,7 +140,7 @@ class _WatchlistScreenState extends State<WatchlistScreen>
   }
 
   List<ImdbSearchResult> _applySorting(
-      List<ImdbSearchResult> list, AppProvider provider) {
+      List<ImdbSearchResult> list, AppState provider) {
     switch (_sortMode) {
       case 'priority':
         return List.from(list)
@@ -199,7 +197,7 @@ class _WatchlistScreenState extends State<WatchlistScreen>
     return searchable.contains(query);
   }
 
-  Widget _buildHeader(AppProvider provider) {
+  Widget _buildHeader(AppState provider) {
     return SafeArea(
       bottom: false,
       child: ScreenIntroHeader(
@@ -207,7 +205,7 @@ class _WatchlistScreenState extends State<WatchlistScreen>
         title: 'WATCHLIST',
         subtitle: 'Keep track of what you want to watch next.',
         trailing: PopupMenuButton<String>(
-          icon: Icon(Icons.more_vert_rounded,
+          icon: const Icon(Icons.more_vert_rounded,
               color: AppTheme.textMuted, size: 22),
           color: AppTheme.elevatedColor,
           shape: RoundedRectangleBorder(
@@ -252,7 +250,7 @@ class _WatchlistScreenState extends State<WatchlistScreen>
               value: 'clear',
               child: Row(
                 children: [
-                  Icon(Icons.delete_sweep_rounded,
+                  const Icon(Icons.delete_sweep_rounded,
                       color: AppTheme.errorColor, size: 18),
                   const SizedBox(width: 12),
                   Text('Clear All',
@@ -272,7 +270,7 @@ class _WatchlistScreenState extends State<WatchlistScreen>
 
   Widget _buildSortButton() {
     return PopupMenuButton<String>(
-      icon: Icon(Icons.sort_rounded, color: AppTheme.textMuted, size: 22),
+      icon: const Icon(Icons.sort_rounded, color: AppTheme.textMuted, size: 22),
       color: AppTheme.elevatedColor,
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
@@ -315,7 +313,8 @@ class _WatchlistScreenState extends State<WatchlistScreen>
           ),
           if (isSelected) ...[
             const Spacer(),
-            Icon(Icons.check_rounded, size: 16, color: AppTheme.primaryColor),
+            const Icon(Icons.check_rounded,
+                size: 16, color: AppTheme.primaryColor),
           ],
         ],
       ),
@@ -390,45 +389,6 @@ class _WatchlistScreenState extends State<WatchlistScreen>
     );
   }
 
-  Widget _buildStatsRow(List<ImdbSearchResult> watchlist) {
-    final movieCount = watchlist.where((item) => item.kind == 'movie').length;
-    final showCount = watchlist.where((item) {
-      return item.kind == 'tvSeries' ||
-          item.kind == 'tvseries' ||
-          item.kind == 'tvEpisode';
-    }).length;
-    final priorityCount = watchlist.where((item) => item.priority >= 7).length;
-
-    return Row(
-      children: [
-        Expanded(
-          child: StatBox(
-            label: 'Saved',
-            value: '${watchlist.length}',
-            icon: Icons.bookmark_rounded,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: StatBox(
-            label: 'Movies / TV',
-            value: '$movieCount / $showCount',
-            icon: Icons.movie_filter_rounded,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: StatBox(
-            label: 'Priority',
-            value: '$priorityCount',
-            icon: Icons.flag_rounded,
-            color: AppTheme.warningColor,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildSearchBar() {
     return Container(
       decoration: AppTheme.compactCardDecoration(),
@@ -481,9 +441,9 @@ class _WatchlistScreenState extends State<WatchlistScreen>
     );
   }
 
-  void _deleteItem(AppProvider provider, ImdbSearchResult item) {
+  void _deleteItem(ImdbSearchResult item) {
     HapticFeedback.mediumImpact();
-    provider.toggleWatchlist(item);
+    ref.read(appNotifierProvider.notifier).toggleWatchlist(item);
 
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
@@ -500,7 +460,7 @@ class _WatchlistScreenState extends State<WatchlistScreen>
           label: 'UNDO',
           textColor: AppTheme.primaryColor,
           onPressed: () {
-            provider.toggleWatchlist(item);
+            ref.read(appNotifierProvider.notifier).toggleWatchlist(item);
             showAppSnackBar(
               context,
               'Restored "${item.title}"',
@@ -514,7 +474,7 @@ class _WatchlistScreenState extends State<WatchlistScreen>
   }
 
   void _showClearDialog() {
-    showDialog(
+    unawaited(showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.elevatedColor,
@@ -548,7 +508,8 @@ class _WatchlistScreenState extends State<WatchlistScreen>
           ),
           TextButton(
             onPressed: () {
-              context.read<AppProvider>().clearWatchlist();
+              unawaited(
+                  ref.read(appNotifierProvider.notifier).clearWatchlist());
               showAppSnackBar(
                 context,
                 'Watchlist cleared',
@@ -564,34 +525,34 @@ class _WatchlistScreenState extends State<WatchlistScreen>
           ),
         ],
       ),
-    );
+    ));
   }
 }
 
-class _WatchlistGridItem extends StatelessWidget {
+class _WatchlistGridItem extends ConsumerWidget {
   final ImdbSearchResult item;
-  final AppProvider provider;
   final VoidCallback onDelete;
 
   const _WatchlistGridItem({
     super.key,
     required this.item,
-    required this.provider,
     required this.onDelete,
   });
 
-  double _getProgress() {
+  double _getProgress(WidgetRef ref) {
     final isTv = item.kind?.toLowerCase().contains('tv') == true ||
         item.kind?.toLowerCase() == 'tvseries';
 
     if (isTv) {
       final key = 'pos_tmdb_${item.id}_s1_e1';
-      final pos = provider.getSetting<int>(key) ?? 0;
+      final pos =
+          ref.read(appNotifierProvider.notifier).getSetting<int>(key) ?? 0;
       if (pos > 0) return 0.5;
       return 0.0;
     } else {
       final key = 'pos_tmdb_${item.id}';
-      final pos = provider.getSetting<int>(key) ?? 0;
+      final pos =
+          ref.read(appNotifierProvider.notifier).getSetting<int>(key) ?? 0;
       if (pos <= 0) return 0.0;
       const runtimeMin = 120;
       const totalMs = runtimeMin * 60 * 1000;
@@ -600,12 +561,12 @@ class _WatchlistGridItem extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final progress = _getProgress();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final progress = _getProgress(ref);
 
     return GestureDetector(
       onTap: () {
-        Navigator.push(
+        unawaited(Navigator.push(
           context,
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 400),
@@ -617,11 +578,11 @@ class _WatchlistGridItem extends StatelessWidget {
               return FadeTransition(opacity: animation, child: child);
             },
           ),
-        );
+        ));
       },
       onLongPress: () {
         int currentPriority = item.priority;
-        showModalBottomSheet(
+        unawaited(showModalBottomSheet(
           context: context,
           backgroundColor: AppTheme.surfaceColor,
           builder: (context) => SafeArea(
@@ -692,8 +653,10 @@ class _WatchlistGridItem extends StatelessWidget {
                           HapticFeedback.selectionClick();
                         },
                         onChangeEnd: (val) {
-                          provider.updateWatchlistPriority(
-                              item.id, currentPriority);
+                          ref
+                              .read(appNotifierProvider.notifier)
+                              .updateWatchlistPriority(
+                                  item.id, currentPriority);
                         },
                       ),
                     ),
@@ -715,143 +678,84 @@ class _WatchlistGridItem extends StatelessWidget {
               },
             ),
           ),
-        );
+        ));
       },
       child: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(8),
           color: AppTheme.surfaceColor.withValues(alpha: 0.3),
         ),
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: CachedNetworkImage(
-                  imageUrl: item.posterUrl,
-                  fit: BoxFit.cover,
-                  placeholder: (_, __) => Container(color: AppTheme.cardColor),
-                  errorWidget: (_, __, ___) =>
-                      Container(color: AppTheme.cardColor),
-                ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CachedNetworkImage(
+                imageUrl: item.posterUrl,
+                fit: BoxFit.cover,
+                fadeInDuration: Duration.zero,
+                fadeOutDuration: Duration.zero,
+                placeholder: (_, __) => Container(color: AppTheme.cardColor),
+                errorWidget: (_, __, ___) =>
+                    Container(color: AppTheme.cardColor),
               ),
-            ),
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  borderRadius:
-                      const BorderRadius.vertical(bottom: Radius.circular(12)),
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.9),
-                      Colors.transparent,
-                    ],
+              if (progress > 0)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(8),
+                      bottomRight: Radius.circular(8),
+                    ),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      backgroundColor: Colors.white10,
+                      valueColor:
+                          const AlwaysStoppedAnimation(AppTheme.primaryColor),
+                      minHeight: 3,
+                    ),
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      item.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        if (item.rating != null) ...[
-                          const Icon(Icons.star_rounded,
-                              color: Color(0xFFFFD600), size: 10),
-                          const SizedBox(width: 2),
-                          Text(
-                            item.rating!,
-                            style: GoogleFonts.outfit(
-                                color: Colors.white70, fontSize: 10),
-                          ),
-                          const SizedBox(width: 6),
-                        ],
-                        Text(
-                          item.year,
-                          style: GoogleFonts.outfit(
-                              color: Colors.white70, fontSize: 10),
+              if (item.priority > 0)
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor,
+                      borderRadius: BorderRadius.circular(6),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.4),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
                         ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-            ),
-            if (progress > 0)
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(12),
-                    bottomRight: Radius.circular(12),
-                  ),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 3,
-                    backgroundColor: Colors.transparent,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      progress > 0.9
-                          ? AppTheme.successColor
-                          : AppTheme.primaryColor,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.star_rounded,
+                            color: Colors.black, size: 9),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${item.priority}',
+                          style: GoogleFonts.outfit(
+                            color: Colors.black,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-            if (item.priority > 0)
-              Positioned(
-                top: 6,
-                right: 6,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryColor,
-                    borderRadius: BorderRadius.circular(6),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.4),
-                        blurRadius: 4,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.star_rounded,
-                          color: Colors.black, size: 9),
-                      const SizedBox(width: 2),
-                      Text(
-                        '${item.priority}',
-                        style: GoogleFonts.outfit(
-                          color: Colors.black,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

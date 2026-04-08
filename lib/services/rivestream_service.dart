@@ -158,11 +158,11 @@ class RiveStreamService {
   }
 
   Future<List<RiveStreamMedia>> getRecommendations(int id,
-      {bool isMovie = true}) async {
+      {bool isMovie = true, int page = 1}) async {
     try {
       final endpoint =
           isMovie ? '/movie/$id/recommendations' : '/tv/$id/recommendations';
-      final response = await _get(endpoint, queryParameters: {'page': 1});
+      final response = await _get(endpoint, queryParameters: {'page': page});
 
       if (response.statusCode == 200 && response.data != null) {
         final results = response.data['results'] as List?;

@@ -1,5 +1,3 @@
-import 'package:intl/intl.dart';
-
 String formatBytes(int bytes, {int decimals = 2}) {
   if (bytes <= 0) return '0 B';
 
@@ -37,27 +35,6 @@ String formatEta(int remainingBytes, int speed) {
 
   final seconds = remainingBytes ~/ speed;
   return formatDuration(Duration(seconds: seconds));
-}
-
-String formatRelativeDate(DateTime date) {
-  final now = DateTime.now();
-  final difference = now.difference(date);
-
-  if (difference.inDays > 7) {
-    return DateFormat('MMM d, yyyy').format(date);
-  } else if (difference.inDays > 1) {
-    return '${difference.inDays} days ago';
-  } else if (difference.inDays == 1) {
-    return 'Yesterday';
-  } else if (difference.inHours > 1) {
-    return '${difference.inHours} hours ago';
-  } else if (difference.inHours == 1) {
-    return '1 hour ago';
-  } else if (difference.inMinutes > 1) {
-    return '${difference.inMinutes} minutes ago';
-  } else {
-    return 'Just now';
-  }
 }
 
 String getFileExtension(String filename) {
@@ -104,20 +81,6 @@ bool isVideoFile(String filename) {
 bool isAudioFile(String filename) {
   final ext = getFileExtension(filename);
   return ['mp3', 'flac', 'wav', 'aac', 'ogg', 'm4a', 'wma'].contains(ext);
-}
-
-String truncateString(String text, int maxLength) {
-  if (text.length <= maxLength) return text;
-  return '${text.substring(0, maxLength - 3)}...';
-}
-
-bool isValidApiKey(String key) {
-  return key.isNotEmpty && RegExp(r'^[a-zA-Z0-9]+$').hasMatch(key);
-}
-
-String? extractInfoHash(String magnet) {
-  final match = RegExp(r'btih:([a-zA-Z0-9]+)').firstMatch(magnet);
-  return match?.group(1)?.toLowerCase();
 }
 
 bool isMagnetUri(String s) {

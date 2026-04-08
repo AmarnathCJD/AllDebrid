@@ -1,5 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import '../../providers/riverpod_compat.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../providers/providers.dart';
 import '../../theme/app_theme.dart';
@@ -8,14 +10,14 @@ import '../../services/session_storage.dart';
 import '../../services/tg_native_service.dart';
 import '../../services/tg_service.dart';
 
-class SettingsScreen extends StatefulWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _isClearingCache = false;
   bool _hasTgSession = false;
   String? _tgUsername;
@@ -39,55 +41,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final provider = ref.watch(appNotifierProvider);
+
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
-      body: Consumer<AppProvider>(
-        builder: (context, provider, _) {
-          return Column(
-            children: [
-              _buildHeader(),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 100),
-                  children: [
-                    _buildProfileCard(provider),
-                    const SizedBox(height: 18),
-                    _buildSectionLabel('ACCOUNT'),
-                    const SizedBox(height: 7),
-                    _buildAccountSection(provider),
-                    const SizedBox(height: 18),
-                    _buildSectionLabel('STORAGE'),
-                    const SizedBox(height: 7),
-                    _buildStorageSection(provider),
-                    const SizedBox(height: 18),
-                    _buildSectionLabel('TELEGRAM'),
-                    const SizedBox(height: 7),
-                    _buildTelegramSection(provider),
-                    const SizedBox(height: 18),
-                    _buildSectionLabel('AI & API'),
-                    const SizedBox(height: 7),
-                    _buildAISection(provider),
-                    const SizedBox(height: 18),
-                    _buildSectionLabel('ABOUT'),
-                    const SizedBox(height: 7),
-                    _buildAboutSection(provider),
-                    const SizedBox(height: 18),
-                    _buildLogoutButton(provider),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
+      body: Column(
+        children: [
+          _buildHeader(),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 100),
+              children: [
+                _buildProfileCard(provider),
+                const SizedBox(height: 18),
+                _buildSectionLabel('ACCOUNT'),
+                const SizedBox(height: 7),
+                _buildAccountSection(provider),
+                const SizedBox(height: 18),
+                _buildSectionLabel('STORAGE'),
+                const SizedBox(height: 7),
+                _buildStorageSection(provider),
+                const SizedBox(height: 18),
+                _buildSectionLabel('TELEGRAM'),
+                const SizedBox(height: 7),
+                _buildTelegramSection(provider),
+                const SizedBox(height: 18),
+                _buildSectionLabel('AI & API'),
+                const SizedBox(height: 7),
+                _buildAISection(provider),
+                const SizedBox(height: 18),
+                _buildSectionLabel('ABOUT'),
+                const SizedBox(height: 7),
+                _buildAboutSection(provider),
+                const SizedBox(height: 18),
+                _buildLogoutButton(provider),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildHeader() {
-    return SafeArea(
+    return const SafeArea(
       bottom: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        padding: EdgeInsets.fromLTRB(20, 16, 20, 16),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -104,7 +104,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       letterSpacing: 1.5,
                     ),
                   ),
-                  const Text(
+                  Text(
                     'SETTINGS',
                     style: TextStyle(
                       fontSize: 28,
@@ -123,7 +123,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildProfileCard(AppProvider provider) {
+  Widget _buildProfileCard(AppState provider) {
     final user = provider.user;
     final username = user?.username ?? 'User';
     final initial = username.isNotEmpty ? username[0].toUpperCase() : 'U';
@@ -219,7 +219,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildAccountSection(AppProvider provider) {
+  Widget _buildAccountSection(AppState provider) {
     return _SettingsCard(
       children: [
         _SettingsTile(
@@ -235,7 +235,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildStorageSection(AppProvider provider) {
+  Widget _buildStorageSection(AppState provider) {
     return _SettingsCard(
       children: [
         _SettingsTile(
@@ -255,7 +255,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: 'Clear Cache',
           subtitle: 'Free up storage',
           trailing: _isClearingCache
-              ? SizedBox(
+              ? const SizedBox(
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(
@@ -270,7 +270,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildTelegramSection(AppProvider provider) {
+  Widget _buildTelegramSection(AppState provider) {
     return _SettingsCard(
       children: [
         _SettingsTile(
@@ -304,16 +304,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await SessionStorage.clearSession();
       await _loadTgStatus();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Text('Telegram Bridge Disconnected'),
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Telegram Bridge Disconnected'),
           backgroundColor: AppTheme.elevatedColor,
         ));
       }
     }
   }
 
-  Widget _buildAISection(AppProvider provider) {
-    final apiKey = provider.getSetting<String>('nvidia_api_key') ?? '';
+  Widget _buildAISection(AppState provider) {
+    final apiKey = ref
+            .read(appNotifierProvider.notifier)
+            .getSetting<String>('nvidia_api_key') ??
+        '';
     final isConfigured = apiKey.isNotEmpty;
 
     return _SettingsCard(
@@ -342,9 +345,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _showAPIKeyDialog(
-      BuildContext context, AppProvider provider) async {
+      BuildContext context, AppState provider) async {
     final controller = TextEditingController(
-      text: provider.getSetting<String>('nvidia_api_key') ?? '',
+      text: ref
+              .read(appNotifierProvider.notifier)
+              .getSetting<String>('nvidia_api_key') ??
+          '',
     );
     bool isSaving = false;
 
@@ -373,7 +379,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
+                const Text(
                   'Get your API key from:',
                   style: TextStyle(
                     color: Colors.white70,
@@ -390,7 +396,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: AppTheme.borderColor.withValues(alpha: 0.2),
                     ),
                   ),
-                  child: Text(
+                  child: const Text(
                     'https://build.nvidia.com/nvidia/nemotron-70b-instruct',
                     style: TextStyle(
                       color: AppTheme.primaryColor,
@@ -410,7 +416,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   decoration: InputDecoration(
                     hintText: 'Paste your API key here',
-                    hintStyle: TextStyle(
+                    hintStyle: const TextStyle(
                       color: Colors.white30,
                       fontSize: 11,
                     ),
@@ -458,8 +464,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   : () async {
                       if (controller.text.isEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: const Text('Please enter an API key'),
+                          const SnackBar(
+                            content: Text('Please enter an API key'),
                             backgroundColor: AppTheme.errorColor,
                           ),
                         );
@@ -469,17 +475,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       setDialogState(() => isSaving = true);
 
                       try {
-                        await provider.saveSetting(
-                          'nvidia_api_key',
-                          controller.text.trim(),
-                        );
+                        await ref
+                            .read(appNotifierProvider.notifier)
+                            .saveSetting(
+                              'nvidia_api_key',
+                              controller.text.trim(),
+                            );
 
                         if (context.mounted) {
                           Navigator.pop(context);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content:
-                                  const Text('API Key saved successfully!'),
+                            const SnackBar(
+                              content: Text('API Key saved successfully!'),
                               backgroundColor: AppTheme.successColor,
                             ),
                           );
@@ -525,17 +532,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _clearAPIKey(AppProvider provider) async {
+  Future<void> _clearAPIKey(AppState provider) async {
     final confirm = await _showConfirmDialog(
       'Remove API Key?',
       'This will disable AI recommendations.',
     );
     if (confirm) {
-      await provider.saveSetting('nvidia_api_key', '');
+      await ref
+          .read(appNotifierProvider.notifier)
+          .saveSetting('nvidia_api_key', '');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('API Key removed'),
+          const SnackBar(
+            content: Text('API Key removed'),
             backgroundColor: AppTheme.elevatedColor,
           ),
         );
@@ -544,7 +553,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Widget _buildAboutSection(AppProvider provider) {
+  Widget _buildAboutSection(AppState provider) {
     return _SettingsCard(
       children: [
         _SettingsTile(
@@ -575,7 +584,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildLogoutButton(AppProvider provider) {
+  Widget _buildLogoutButton(AppState provider) {
     return GestureDetector(
       onTap: () => _logout(provider),
       child: Container(
@@ -591,7 +600,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.logout_rounded, color: AppTheme.errorColor, size: 16),
+            const Icon(Icons.logout_rounded,
+                color: AppTheme.errorColor, size: 16),
             const SizedBox(width: 6),
             Text(
               'Log Out',
@@ -609,9 +619,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // Dialogs
-  void _showApiKeyDialog(BuildContext context, AppProvider provider) {
+  void _showApiKeyDialog(BuildContext context, AppState provider) {
     final controller = TextEditingController(text: provider.apiKey);
-    showDialog(
+    unawaited(showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.elevatedColor,
@@ -638,21 +648,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             fillColor: AppTheme.surfaceColor,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
+              borderSide: const BorderSide(
                 color: AppTheme.borderColor,
                 width: 1,
               ),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
+              borderSide: const BorderSide(
                 color: AppTheme.borderColor,
                 width: 1,
               ),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
+              borderSide: const BorderSide(
                 color: AppTheme.primaryColor,
                 width: 1.5,
               ),
@@ -670,7 +680,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ElevatedButton(
             onPressed: () async {
               if (controller.text.isNotEmpty) {
-                await provider.initializeWithApiKey(controller.text);
+                await ref
+                    .read(appNotifierProvider.notifier)
+                    .initializeWithApiKey(controller.text);
                 if (mounted) Navigator.pop(context);
               }
             },
@@ -679,10 +691,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
       ),
-    );
+    ));
   }
 
-  Future<void> _logout(AppProvider provider) async {
+  Future<void> _logout(AppState provider) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -726,7 +738,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     if (confirm == true) {
-      await provider.logout();
+      await ref.read(appNotifierProvider.notifier).logout();
       if (mounted) setState(() {});
     }
   }
@@ -763,11 +775,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _clearWatchlist(AppProvider provider) async {
+  Future<void> _clearWatchlist(AppState provider) async {
     final confirm =
         await _showConfirmDialog('Clear Watchlist?', 'Remove all saved items?');
     if (confirm) {
-      await provider.clearWatchlist();
+      await ref.read(appNotifierProvider.notifier).clearWatchlist();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: const Text('Watchlist cleared'),
@@ -824,11 +836,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         false;
   }
 
-  void _showTelegramBotDialog(BuildContext context, AppProvider provider) {
+  void _showTelegramBotDialog(BuildContext context, AppState provider) {
     final controller = TextEditingController();
     bool isSaving = false;
 
-    showDialog(
+    unawaited(showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) {
@@ -842,7 +854,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             content: Container(
               width: MediaQuery.of(context).size.width,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -915,7 +927,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         .withValues(alpha: 0.1),
                                     shape: BoxShape.circle,
                                   ),
-                                  child: Icon(Icons.verified_user_rounded,
+                                  child: const Icon(Icons.verified_user_rounded,
                                       color: AppTheme.successColor, size: 18),
                                 ),
                                 const SizedBox(width: 12),
@@ -983,8 +995,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                           if (context.mounted) {
                                             Navigator.pop(context);
                                             ScaffoldMessenger.of(context)
-                                                .showSnackBar(SnackBar(
-                                              content: const Text(
+                                                .showSnackBar(const SnackBar(
+                                              content: Text(
                                                   'Telegram Bridge Disconnected'),
                                               backgroundColor:
                                                   AppTheme.elevatedColor,
@@ -1047,7 +1059,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 letterSpacing: 1,
                               ),
                               hintText: '123456:ABC-DEF...',
-                              prefixIcon: Icon(Icons.vpn_key_rounded,
+                              prefixIcon: const Icon(Icons.vpn_key_rounded,
                                   size: 18, color: AppTheme.primaryColor),
                               filled: true,
                               fillColor:
@@ -1062,7 +1074,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide(
+                                borderSide: const BorderSide(
                                     color: AppTheme.primaryColor, width: 1.5),
                               ),
                             ),
@@ -1203,7 +1215,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           );
         },
       ),
-    );
+    ));
   }
 }
 

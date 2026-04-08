@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
 
-enum AppFeedbackType { info, success, error }
+enum AppFeedbackType { info, success, warn, error }
 
 void showAppSnackBar(
   BuildContext context,
@@ -15,12 +15,14 @@ void showAppSnackBar(
   final color = switch (type) {
     AppFeedbackType.info => AppTheme.primaryColor,
     AppFeedbackType.success => AppTheme.successColor,
+    AppFeedbackType.warn => AppTheme.warningColor,
     AppFeedbackType.error => AppTheme.errorColor,
   };
 
   final icon = switch (type) {
     AppFeedbackType.info => Icons.info_outline_rounded,
     AppFeedbackType.success => Icons.check_circle_outline_rounded,
+    AppFeedbackType.warn => Icons.warning_amber_rounded,
     AppFeedbackType.error => Icons.error_outline_rounded,
   };
 

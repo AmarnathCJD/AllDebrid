@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:app_links/app_links.dart';
+import 'dart:async';
 
 import 'providers/providers.dart';
 import 'services/services.dart';
@@ -24,16 +25,17 @@ void main() async {
     ),
   );
 
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
+  final storageService = StorageService();
+  await Future.wait([
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]),
+    storageService.init(),
   ]);
 
-  final storageService = StorageService();
-  await storageService.init();
-
   final notificationService = NotificationService();
-  await notificationService.init();
+  unawaited(notificationService.init());
 
   final downloadService = DownloadService(storageService: storageService);
 
@@ -53,14 +55,13 @@ class AllDebridApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final themeData = ref.watch(
-      appProviderProvider.select((p) => (p.primaryColor, p.isDarkMode)),
-    );
+    final appState = ref.watch(appNotifierProvider);
     return MaterialApp(
       title: 'AllDebrid',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.createTheme(themeData.$1, isDark: themeData.$2),
-      navigatorObservers: [ref.read(appProviderProvider).routeObserver],
+      theme: AppTheme.createTheme(appState.primaryColor,
+          isDark: appState.isDarkMode),
+      navigatorObservers: [appState.routeObserver],
       home: const AppWrapper(),
     );
   }
@@ -76,32 +77,34 @@ class AppWrapper extends ConsumerStatefulWidget {
 class _AppWrapperState extends ConsumerState<AppWrapper> {
   bool _isInitializing = true;
   final _appLinks = AppLinks();
+  StreamSubscription<Uri>? _appLinksSubscription;
 
   @override
   void initState() {
     super.initState();
-    final appProvider = ref.read(appProviderProvider);
-    // If user has launched before (has API key in storage), skip splash
-    final hasLaunchedBefore = appProvider.hasApiKey ||
-        (appProvider.getSetting<bool>('has_launched') ?? false);
+    final appState = ref.read(appNotifierProvider);
+    final appNotifier = ref.read(appNotifierProvider.notifier);
+    final hasLaunchedBefore = appState.hasApiKey ||
+        (appNotifier.getSetting<bool>('has_launched') ?? false);
     if (hasLaunchedBefore) {
       _isInitializing = false;
-      Future.microtask(() => _initializeApp(showSplash: false));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_initializeApp(showSplash: false));
+      });
     } else {
-      Future.microtask(() => _initializeApp(showSplash: true));
+      unawaited(Future<void>.microtask(() => _initializeApp(showSplash: true)));
     }
     _initDeepLinks();
   }
 
   void _initDeepLinks() {
     // Handle link when app is already running
-    _appLinks.uriLinkStream.listen((uri) {
-      _handleDeepLink(uri);
-    });
+    _appLinksSubscription = _appLinks.uriLinkStream.listen(_handleDeepLink);
     // Handle initial link (app opened cold via link)
-    _appLinks.getInitialLink().then((uri) {
+    unawaited(_appLinks.getInitialLink().then((uri) {
       if (uri != null) _handleDeepLink(uri);
-    });
+    }));
   }
 
   void _handleDeepLink(Uri uri) {
@@ -113,13 +116,13 @@ class _AppWrapperState extends ConsumerState<AppWrapper> {
     if (tmdbId.isEmpty) return;
 
     // Wait until app is initialized before navigating
-    Future.doWhile(() async {
+    unawaited(Future.doWhile(() async {
       if (!_isInitializing && mounted) return false;
       await Future.delayed(const Duration(milliseconds: 100));
       return _isInitializing;
     }).then((_) {
       if (!mounted) return;
-      Navigator.push(
+      unawaited(Navigator.push(
         context,
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 500),
@@ -137,35 +140,41 @@ class _AppWrapperState extends ConsumerState<AppWrapper> {
             return FadeTransition(opacity: animation, child: child);
           },
         ),
-      );
-    });
+      ));
+    }));
   }
 
   Future<void> _initializeApp({required bool showSplash}) async {
     if (!mounted) return;
-    final appProvider = ref.read(appProviderProvider);
-    final trendingProvider = ref.read(trendingProviderProvider);
-    final kdramaProvider = ref.read(kDramaProviderProvider);
-    final magnetProvider = ref.read(magnetProviderProvider);
+    final appNotifier = ref.read(appNotifierProvider.notifier);
+    final trendingNotifier = ref.read(trendingNotifierProvider.notifier);
+    final kdramaNotifier = ref.read(kDramaNotifierProvider.notifier);
+    final magnetNotifier = ref.read(magnetNotifierProvider.notifier);
 
-    await appProvider.initialize();
-    await appProvider.saveSetting('has_launched', true);
+    await appNotifier.initialize();
+    unawaited(appNotifier.saveSetting('has_launched', true));
 
     if (mounted) {
-      trendingProvider.loadTrendingData();
-      kdramaProvider.loadTopDramas();
-      kdramaProvider.loadTopAiringDramas();
-      kdramaProvider.loadLatestDramas();
-      magnetProvider.fetchMagnets();
+      unawaited(trendingNotifier.loadTrendingData());
+      unawaited(kdramaNotifier.loadTopDramas());
+      unawaited(kdramaNotifier.loadTopAiringDramas());
+      unawaited(kdramaNotifier.loadLatestDramas());
+      unawaited(magnetNotifier.fetchMagnets());
     }
 
     if (showSplash) {
-      await Future.delayed(const Duration(milliseconds: 400));
+      await Future.delayed(const Duration(milliseconds: 120));
     }
 
     if (mounted && showSplash) {
       setState(() => _isInitializing = false);
     }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_appLinksSubscription?.cancel());
+    super.dispose();
   }
 
   @override

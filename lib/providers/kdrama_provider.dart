@@ -1,39 +1,70 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/kdrama_service.dart';
+
 export '../services/kdrama_service.dart' show KDramaItem;
 
-class KDramaProvider extends ChangeNotifier {
+/// KDrama State
+class KDramaState {
+  final List<KDramaItem> topDramas;
+  final List<KDramaItem> latestDramas;
+  final List<KDramaItem> topAiringDramas;
+  final bool isTopLoading;
+  final bool isLatestLoading;
+  final bool isTopAiringLoading;
+
+  const KDramaState({
+    this.topDramas = const [],
+    this.latestDramas = const [],
+    this.topAiringDramas = const [],
+    this.isTopLoading = false,
+    this.isLatestLoading = false,
+    this.isTopAiringLoading = false,
+  });
+
+  bool get isLoading => isTopLoading || isLatestLoading || isTopAiringLoading;
+
+  KDramaState copyWith({
+    List<KDramaItem>? topDramas,
+    List<KDramaItem>? latestDramas,
+    List<KDramaItem>? topAiringDramas,
+    bool? isTopLoading,
+    bool? isLatestLoading,
+    bool? isTopAiringLoading,
+  }) {
+    return KDramaState(
+      topDramas: topDramas ?? this.topDramas,
+      latestDramas: latestDramas ?? this.latestDramas,
+      topAiringDramas: topAiringDramas ?? this.topAiringDramas,
+      isTopLoading: isTopLoading ?? this.isTopLoading,
+      isLatestLoading: isLatestLoading ?? this.isLatestLoading,
+      isTopAiringLoading: isTopAiringLoading ?? this.isTopAiringLoading,
+    );
+  }
+}
+
+/// KDrama Notifier
+class KDramaNotifier extends Notifier<KDramaState> {
   final _dramaService = KDramaService();
 
-  List<KDramaItem> _topDramas = [];
-  List<KDramaItem> _latestDramas = [];
-  List<KDramaItem> _topAiringDramas = [];
-  bool _isLoading = false;
-
-  List<KDramaItem> get topDramas => _topDramas;
-  List<KDramaItem> get latestDramas => _latestDramas;
-  List<KDramaItem> get topAiringDramas => _topAiringDramas;
-  bool get isLoading => _isLoading;
+  @override
+  KDramaState build() => const KDramaState();
 
   Future<void> loadTopDramas() async {
     final cachedDramas = await _dramaService
         .getCachedDramas('${KDramaService.baseUrl}/shows/top');
     if (cachedDramas.isNotEmpty) {
-      _topDramas = cachedDramas;
-      notifyListeners();
+      state = state.copyWith(topDramas: cachedDramas);
     } else {
-      _isLoading = true;
-      notifyListeners();
+      state = state.copyWith(isTopLoading: true);
     }
 
     try {
       final dramas = await _dramaService.fetchTopDramas();
-      _topDramas = dramas;
+      state = state.copyWith(topDramas: dramas, isTopLoading: false);
     } catch (e) {
-      print('[KDRAMA PROVIDER] Error loading top dramas: $e');
-    } finally {
-      if (_isLoading) _isLoading = false;
-      notifyListeners();
+      debugPrint('[KDRAMA PROVIDER] Error loading top dramas: $e');
+      state = state.copyWith(isTopLoading: false);
     }
   }
 
@@ -42,22 +73,18 @@ class KDramaProvider extends ChangeNotifier {
     final cachedDramas = await _dramaService
         .getCachedDramas('${KDramaService.baseUrl}/shows/newest');
     if (cachedDramas.isNotEmpty) {
-      _latestDramas = cachedDramas;
-      notifyListeners();
+      state = state.copyWith(latestDramas: cachedDramas);
     } else {
-      _isLoading = true;
-      notifyListeners();
+      state = state.copyWith(isLatestLoading: true);
     }
 
     // 2. Load fresh
     try {
       final dramas = await _dramaService.fetchLatestDramas();
-      _latestDramas = dramas;
+      state = state.copyWith(latestDramas: dramas, isLatestLoading: false);
     } catch (e) {
-      print('[KDRAMA PROVIDER] Error loading latest dramas: $e');
-    } finally {
-      if (_isLoading) _isLoading = false;
-      notifyListeners();
+      debugPrint('[KDRAMA PROVIDER] Error loading latest dramas: $e');
+      state = state.copyWith(isLatestLoading: false);
     }
   }
 
@@ -66,22 +93,22 @@ class KDramaProvider extends ChangeNotifier {
     final cachedDramas = await _dramaService
         .getCachedDramas('${KDramaService.baseUrl}/shows/top_airing');
     if (cachedDramas.isNotEmpty) {
-      _topAiringDramas = cachedDramas;
-      notifyListeners();
+      state = state.copyWith(topAiringDramas: cachedDramas);
     } else {
-      _isLoading = true;
-      notifyListeners();
+      state = state.copyWith(isTopAiringLoading: true);
     }
 
     // 2. Load fresh
     try {
       final dramas = await _dramaService.fetchTopAiringDramas();
-      _topAiringDramas = dramas;
+      state = state.copyWith(topAiringDramas: dramas, isTopAiringLoading: false);
     } catch (e) {
-      print('[KDRAMA PROVIDER] Error loading top airing dramas: $e');
-    } finally {
-      if (_isLoading) _isLoading = false;
-      notifyListeners();
+      debugPrint('[KDRAMA PROVIDER] Error loading top airing dramas: $e');
+      state = state.copyWith(isTopAiringLoading: false);
     }
   }
 }
+
+final kDramaNotifierProvider = NotifierProvider<KDramaNotifier, KDramaState>(() {
+  return KDramaNotifier();
+});

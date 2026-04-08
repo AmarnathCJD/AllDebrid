@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
@@ -196,7 +198,7 @@ class DownloadCard extends StatelessWidget {
                   children: [
                     // Subtle Backround Pattern or Color
                     Container(
-                      decoration: BoxDecoration(
+                      decoration: const BoxDecoration(
                         color: AppTheme
                             .surfaceColor, // Lighter/Darker separate from Poster
                       ),
@@ -342,7 +344,8 @@ class DownloadCard extends StatelessWidget {
                                         const SizedBox(height: 4),
                                         Row(
                                           children: [
-                                            Icon(Icons.arrow_downward_rounded,
+                                            const Icon(
+                                                Icons.arrow_downward_rounded,
                                                 size: 10,
                                                 color: AppTheme.accentColor),
                                             const SizedBox(width: 2),
@@ -354,7 +357,7 @@ class DownloadCard extends StatelessWidget {
                                                   color: AppTheme.accentColor),
                                             ),
                                             const SizedBox(width: 6),
-                                            Icon(Icons.timer_outlined,
+                                            const Icon(Icons.timer_outlined,
                                                 size: 10,
                                                 color: AppTheme.textMuted),
                                             const SizedBox(width: 2),
@@ -373,7 +376,7 @@ class DownloadCard extends StatelessWidget {
                                     ] else if (speed > 0) ...[
                                       Row(
                                         children: [
-                                          Icon(Icons.speed_rounded,
+                                          const Icon(Icons.speed_rounded,
                                               size: 10,
                                               color: AppTheme.textMuted),
                                           const SizedBox(width: 2),
@@ -602,7 +605,7 @@ class DownloadCard extends StatelessWidget {
 
     if (!context.mounted) return;
 
-    showModalBottomSheet(
+    await showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -651,7 +654,7 @@ class DownloadCard extends StatelessWidget {
       String? country,
       String? languages) {
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppTheme.cardColor,
       ),
       child: Stack(
@@ -801,7 +804,7 @@ class DownloadCard extends StatelessWidget {
                       Expanded(
                         child: ElevatedButton.icon(
                           onPressed: () =>
-                              _launchTrailer(context, videoId, title),
+                              unawaited(_launchTrailer(context, videoId, title)),
                           icon: const Icon(Icons.play_arrow_rounded,
                               color: Colors.black),
                           label: const Text('TRAILER',
@@ -1048,7 +1051,7 @@ class DownloadCard extends StatelessWidget {
 
     if (context.mounted) {
       if (streamUrl != null) {
-        Navigator.push(
+        await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => PlayerScreen(

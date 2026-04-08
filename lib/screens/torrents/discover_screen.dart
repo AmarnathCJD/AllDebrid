@@ -403,9 +403,9 @@ class _DiscoverScreenState extends State<DiscoverScreen>
   }
 
   Widget _buildSliverAppBar() {
-    return SliverToBoxAdapter(
+    return const SliverToBoxAdapter(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 50, 20, 16),
+        padding: EdgeInsets.fromLTRB(20, 50, 20, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -418,7 +418,7 @@ class _DiscoverScreenState extends State<DiscoverScreen>
                 letterSpacing: 1.5,
               ),
             ),
-            const Text(
+            Text(
               'DISCOVER',
               style: TextStyle(
                 fontSize: 28,
@@ -563,7 +563,7 @@ class _DiscoverScreenState extends State<DiscoverScreen>
 
   Widget _buildBody() {
     if (_isLoading) {
-      return SliverFillRemaining(
+      return const SliverFillRemaining(
         child: Center(
           child: CircularProgressIndicator(color: AppTheme.primaryColor),
         ),
@@ -617,8 +617,8 @@ class _DiscoverScreenState extends State<DiscoverScreen>
           (context, index) {
             if (index == _filteredResults.length) {
               return _isLoadingMore
-                  ? Padding(
-                      padding: const EdgeInsets.all(16),
+                  ? const Padding(
+                      padding: EdgeInsets.all(16),
                       child: Center(
                         child: CircularProgressIndicator(
                           color: AppTheme.primaryColor,
@@ -695,7 +695,7 @@ class _TorrentCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: () {
-            Navigator.push(
+            unawaited(Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) => TorrentDetailsScreen(
@@ -703,7 +703,7 @@ class _TorrentCard extends StatelessWidget {
                   scraperService: TorrentScraperService(),
                 ),
               ),
-            );
+            ));
           },
           borderRadius: BorderRadius.circular(14),
           child: Padding(

@@ -10,8 +10,13 @@ class NotificationService {
 
   final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
+  Future<void>? _initFuture;
 
-  Future<void> init() async {
+  Future<void> init() {
+    return _initFuture ??= _initialize();
+  }
+
+  Future<void> _initialize() async {
     tz.initializeTimeZones();
 
     const androidSettings =
@@ -46,9 +51,10 @@ class NotificationService {
     required DateTime scheduledDate,
     String? payload,
   }) async {
+    await init();
     if (scheduledDate.isBefore(DateTime.now())) return;
 
-    final androidDetails = AndroidNotificationDetails(
+    final androidDetails = const AndroidNotificationDetails(
       'episode_reminders',
       'Episode Reminders',
       channelDescription: 'Notifications for upcoming episodes',
@@ -68,10 +74,12 @@ class NotificationService {
   }
 
   Future<void> cancelReminder(int id) async {
+    await init();
     await _notifications.cancel(id: id);
   }
 
   Future<bool> isReminderSet(int id) async {
+    await init();
     final pending = await _notifications.pendingNotificationRequests();
     return pending.any((request) => request.id == id);
   }

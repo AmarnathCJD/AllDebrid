@@ -11,6 +11,7 @@ import 'dart:ui';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import '../../utils/helpers.dart';
+import '../../widgets/common/blurhash_placeholder.dart';
 
 class SearchPage extends StatefulWidget {
   final String? initialQuery;
@@ -195,7 +196,7 @@ class _SearchPageState extends State<SearchPage> {
       description: item.overview,
       backdropUrl: item.fullBackdropUrl,
     );
-    Navigator.push(
+    unawaited(Navigator.push(
       context,
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 500),
@@ -216,7 +217,11 @@ class _SearchPageState extends State<SearchPage> {
           );
         },
       ),
-    ).then((_) => _fetchRecents());
+    ).then((_) {
+      if (mounted) {
+        unawaited(_fetchRecents());
+      }
+    }));
   }
 
   @override
@@ -305,8 +310,8 @@ class _SearchPageState extends State<SearchPage> {
                           ),
                           suffixIcon: _searchController.text.isNotEmpty
                               ? IconButton(
-                                  icon: const Icon(Icons.clear_rounded,
-                                      size: 17),
+                                  icon:
+                                      const Icon(Icons.clear_rounded, size: 17),
                                   color: Colors.white54,
                                   onPressed: () {
                                     _searchController.clear();
@@ -477,7 +482,7 @@ class _SearchPageState extends State<SearchPage> {
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
                   child: Row(
                     children: [
-                      Icon(Icons.history_rounded,
+                      const Icon(Icons.history_rounded,
                           size: 16, color: AppTheme.primaryColor),
                       const SizedBox(width: 8),
                       Text('RECENTLY VIEWED',
@@ -505,16 +510,16 @@ class _SearchPageState extends State<SearchPage> {
                         padding: const EdgeInsets.only(right: 12),
                         child: GestureDetector(
                           onTap: () {
-                            Navigator.push(
+                            unawaited(Navigator.push(
                               context,
                               PageRouteBuilder(
                                 transitionDuration:
                                     const Duration(milliseconds: 500),
                                 reverseTransitionDuration:
                                     const Duration(milliseconds: 400),
-                                pageBuilder: (context, animation,
-                                        secondaryAnimation) =>
-                                    MediaInfoScreen(item: item),
+                                pageBuilder:
+                                    (context, animation, secondaryAnimation) =>
+                                        MediaInfoScreen(item: item),
                                 transitionsBuilder: (context, animation,
                                     secondaryAnimation, child) {
                                   final curved = CurvedAnimation(
@@ -532,7 +537,11 @@ class _SearchPageState extends State<SearchPage> {
                                   );
                                 },
                               ),
-                            ).then((_) => _fetchRecents());
+                            ).then((_) {
+                              if (mounted) {
+                                unawaited(_fetchRecents());
+                              }
+                            }));
                           },
                           child: Column(
                             children: [
@@ -545,9 +554,9 @@ class _SearchPageState extends State<SearchPage> {
                                       imageUrl: item.posterUrl,
                                       fit: BoxFit.cover,
                                       placeholder: (_, __) =>
-                                          Container(color: Colors.white10),
+                                          const AppBlurHashPlaceholder(),
                                       errorWidget: (_, __, ___) =>
-                                          Container(color: Colors.white10),
+                                          const AppBlurHashPlaceholder(),
                                     ),
                                   ),
                                 ),
@@ -660,11 +669,9 @@ class _SearchPageState extends State<SearchPage> {
                 child: CachedNetworkImage(
                   imageUrl: item.fullPosterUrl,
                   fit: BoxFit.cover,
-                  placeholder: (_, __) =>
-                      Container(color: Colors.white.withValues(alpha: 0.05)),
-                  errorWidget: (_, __, ___) => Container(
-                    color: Colors.white.withValues(alpha: 0.05),
-                    child: const Icon(Icons.movie_creation_outlined,
+                  placeholder: (_, __) => const AppBlurHashPlaceholder(),
+                  errorWidget: (_, __, ___) => const AppBlurHashPlaceholder(
+                    fallbackIcon: Icon(Icons.movie_creation_outlined,
                         color: Colors.white24),
                   ),
                 ),
@@ -712,7 +719,7 @@ class _SearchPageState extends State<SearchPage> {
                           if (item.voteAverage > 0)
                             Row(
                               children: [
-                                Icon(Icons.star_rounded,
+                                const Icon(Icons.star_rounded,
                                     size: 10, color: AppTheme.primaryColor),
                                 const SizedBox(width: 2),
                                 Text(

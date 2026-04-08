@@ -246,11 +246,13 @@ class TGNativeService {
           final usernamePtr = username.toNativeUtf8();
           final resultPtr = func(usernamePtr.cast());
           final resultStr = resultPtr.cast<ffilib.Utf8>().toDartString();
+          debugPrint('[TGNative] ResolveUsername result: $resultStr');
           ffilib.malloc.free(usernamePtr);
           ffilib.malloc.free(resultPtr.cast());
 
           final result = jsonDecode(resultStr) as Map<String, dynamic>;
           if (result['error'] != null) {
+            debugPrint('[TGNative] ERROR in ResolveUsername: ${result['error']}');
             throw Exception('Resolve username failed: ${result['error']}');
           }
 
@@ -299,10 +301,12 @@ class TGNativeService {
 
           final resultPtr = func(channelId, accessHash, msgId);
           final resultStr = resultPtr.cast<ffilib.Utf8>().toDartString();
+          debugPrint('[TGNative] FetchFileMetadata result: $resultStr');
           ffilib.malloc.free(resultPtr.cast());
 
           final result = jsonDecode(resultStr) as Map<String, dynamic>;
           if (result['error'] != null) {
+            debugPrint('[TGNative] ERROR in FetchFileMetadata: ${result['error']}');
             throw Exception('Fetch metadata failed: ${result['error']}');
           }
 

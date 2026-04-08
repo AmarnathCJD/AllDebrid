@@ -10,8 +10,8 @@ import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Cache configuration
-const int cacheExpiryHours = 24; // Cache expires after 24 hours
-const int imageCacheExpiryHours = 168; // Image cache expires after 7 days
+const int cacheExpiryHours = 24;
+const int imageCacheExpiryHours = 168;
 
 // ─── Video Source Key ───────────────────────────────────────────────────────
 
@@ -64,278 +64,206 @@ class ProviderSourceResult {
   });
 }
 
-// ─── Video Sources Provider (family by VideoSourceKey) ──────────────────────
+// ─── Video Sources Provider ────────────────────────────────────────────────
 
-final videoSourcesProvider = AsyncNotifierProvider.family<
-    VideoSourcesNotifier,
-    Map<String, ProviderSourceResult>,
-    VideoSourceKey>(VideoSourcesNotifier.new);
+final videoSourcesProvider =
+    FutureProvider.family<Map<String, ProviderSourceResult>, VideoSourceKey>(
+  (ref, key) async {
+    final videoSourceService = VideoSourceService();
+    final kissKhService = KissKhService();
+    final vidLinkService = VidLinkService();
+    final vidEasyService = VidEasyService();
+    final tgService = TgService();
 
-class VideoSourcesNotifier
-    extends AsyncNotifier<Map<String, ProviderSourceResult>> {
-  VideoSourcesNotifier(this.key);
-
-  final VideoSourceKey key;
-  final _videoSourceService = VideoSourceService();
-  final _kissKhService = KissKhService();
-  final _vidLinkService = VidLinkService();
-  final _vidEasyService = VidEasyService();
-  final _tgService = TgService();
-
-  @override
-  Future<Map<String, ProviderSourceResult>> build() async {
     final results = <String, ProviderSourceResult>{};
 
     try {
-      // Run all provider fetches in parallel
       final futures = <Future<ProviderSourceResult?>>[
-        _fetchRiver(key),
-        _fetchKissKh(key),
-        _fetchVidLink(key),
-        _fetchVidEasy(key),
-        _fetchTg(key),
+        _videoFetchRiver(videoSourceService, key),
+        _videoFetchKissKh(kissKhService, key),
+        _videoFetchVidLink(vidLinkService, key),
+        _videoFetchVidEasy(vidEasyService, key),
+        _videoFetchTg(tgService, key),
       ];
 
       final allResults = await Future.wait(futures, eagerError: false);
 
-      // Filter and collect non-null results
       for (final result in allResults) {
         if (result != null && (result.sources.isNotEmpty || result.isTg)) {
           results[result.providerName] = result;
         }
       }
-
-      return results;
     } catch (e) {
-      return {}; // Return empty map on error
+      debugPrint('[VideoSourcesProvider] Error: $e');
     }
-  }
 
-  Future<ProviderSourceResult?> _fetchRiver(VideoSourceKey key) async {
-    try {
-      final response = await _videoSourceService.getVideoSources(
-        key.tmdbId,
-        key.season.toString(),
-        key.episode.toString(),
-        serviceName: key.isMovie ? 'movieVideoProvider' : 'tvVideoProvider',
-      );
+    return results;
+  },
+);
 
-      final sources = (response['sources'] as List?)?.cast<VideoSource>() ?? [];
-      final captions =
-          (response['captions'] as List?)?.cast<VideoCaption>() ?? [];
+// Helper functions for video source fetching
+Future<ProviderSourceResult?> _videoFetchRiver(
+  VideoSourceService videoSourceService,
+  VideoSourceKey key,
+) async {
+  try {
+    final response = await videoSourceService.getVideoSources(
+      key.tmdbId,
+      key.season.toString(),
+      key.episode.toString(),
+      serviceName: key.isMovie ? 'movieVideoProvider' : 'tvVideoProvider',
+    );
 
-      if (sources.isNotEmpty) {
-        return ProviderSourceResult(
-          providerName: 'river',
-          sources: sources,
-          captions: captions,
-          headers: VideoSourceService.flowCastHeaders,
-        );
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
+    final sources = (response['sources'] as List?)?.cast<VideoSource>() ?? [];
+    final captions =
+        (response['captions'] as List?)?.cast<VideoCaption>() ?? [];
 
-  Future<ProviderSourceResult?> _fetchKissKh(VideoSourceKey key) async {
-    try {
-      final response = await _kissKhService.getSources(
-        key.title,
-        key.season,
-        key.episode,
-      );
-
-      final sources = (response['sources'] as List?)?.cast<VideoSource>() ?? [];
-      final captions =
-          (response['captions'] as List?)?.cast<VideoCaption>() ?? [];
-
-      if (sources.isNotEmpty) {
-        return ProviderSourceResult(
-          providerName: 'kisskh',
-          sources: sources,
-          captions: captions,
-        );
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  Future<ProviderSourceResult?> _fetchVidLink(VideoSourceKey key) async {
-    try {
-      final tmdbInt = int.tryParse(key.tmdbId) ?? 0;
-      final response = await _vidLinkService.getSources(
-        tmdbInt,
-        isMovie: key.isMovie,
-        season: key.season,
-        episode: key.episode,
-      );
-
-      final sources = (response['sources'] as List?)?.cast<VideoSource>() ?? [];
-      final captions =
-          (response['captions'] as List?)?.cast<VideoCaption>() ?? [];
-
-      if (sources.isNotEmpty) {
-        return ProviderSourceResult(
-          providerName: 'vidlink',
-          sources: sources,
-          captions: captions,
-        );
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  Future<ProviderSourceResult?> _fetchVidEasy(VideoSourceKey key) async {
-    try {
-      final tmdbInt = int.tryParse(key.tmdbId) ?? 0;
-      final response = await _vidEasyService.getSources(
-        key.title,
-        key.year,
-        tmdbInt,
-        isMovie: key.isMovie,
-        season: key.season,
-        episode: key.episode,
-      );
-
-      final sources = (response['sources'] as List?)?.cast<VideoSource>() ?? [];
-      final captions =
-          (response['captions'] as List?)?.cast<VideoCaption>() ?? [];
-
-      if (sources.isNotEmpty) {
-        return ProviderSourceResult(
-          providerName: 'videasy',
-          sources: sources,
-          captions: captions,
-        );
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  Future<ProviderSourceResult?> _fetchTg(VideoSourceKey key) async {
-    try {
-      // TG links are generated in real-time on client-side, so don't prefetch them
-      // Just check availability and return empty sources
-      // Actual stream fetching happens when user clicks play (in _TgFlowSheet)
-
-      if (key.isMovie) {
-        // Movie: only check availability
-        final checkResult = await _tgService.checkMovie(key.tmdbId);
-        if (checkResult != null && checkResult.qualities.isNotEmpty) {
-          return const ProviderSourceResult(
-            providerName: 'tg',
-            sources: [],
-            captions: [],
-            isTg: true,
-          );
-        }
-        return const ProviderSourceResult(
-          providerName: 'tg',
-          sources: [],
-          captions: [],
-          isTg: true,
-        );
-      } else {
-        // TV: only check availability
-        final imdbId = key.imdbId;
-        if (imdbId == null) {
-          return const ProviderSourceResult(
-            providerName: 'tg',
-            sources: [],
-            captions: [],
-            isTg: true,
-          );
-        }
-
-        final checkResult = await _tgService.check(imdbId);
-        if (checkResult != null && checkResult.qualities.isNotEmpty) {
-          return const ProviderSourceResult(
-            providerName: 'tg',
-            sources: [],
-            captions: [],
-            isTg: true,
-          );
-        }
-        return const ProviderSourceResult(
-          providerName: 'tg',
-          sources: [],
-          captions: [],
-          isTg: true,
-        );
-      }
-    } catch (e) {
-      return const ProviderSourceResult(
-        providerName: 'tg',
-        sources: [],
-        captions: [],
-        isTg: true,
+    if (sources.isNotEmpty) {
+      return ProviderSourceResult(
+        providerName: 'river',
+        sources: sources,
+        captions: captions,
+        headers: VideoSourceService.flowCastHeaders,
       );
     }
-  }
-
-  // Optional: method to refetch a single provider
-  Future<void> refetchProvider(String providerName, VideoSourceKey key) async {
-    ProviderSourceResult? result;
-
-    try {
-      switch (providerName) {
-        case 'river':
-          result = await _fetchRiver(key);
-          break;
-        case 'kisskh':
-          result = await _fetchKissKh(key);
-          break;
-        case 'vidlink':
-          result = await _fetchVidLink(key);
-          break;
-        case 'videasy':
-          result = await _fetchVidEasy(key);
-          break;
-        case 'tg':
-          result = await _fetchTg(key);
-          break;
-      }
-
-      if (result != null) {
-        // Update state to include new result
-        state.whenData((data) {
-          final updated = {...data, providerName: result!};
-          state = AsyncData(updated);
-        });
-      }
-    } catch (e) {
-      // Silent fail on individual provider refetch
-    }
+    return null;
+  } catch (e) {
+    return null;
   }
 }
 
-// ─── Next Episode Provider (for TV shows) ──────────────────────────────────
+Future<ProviderSourceResult?> _videoFetchKissKh(
+  KissKhService kissKhService,
+  VideoSourceKey key,
+) async {
+  try {
+    final response = await kissKhService.getSources(
+      key.title,
+      key.season,
+      key.episode,
+    );
 
-final nextEpisodeProvider =
-    AsyncNotifierProvider.family<NextEpisodeNotifier, (int, int), String>(
-  NextEpisodeNotifier.new,
-);
+    final sources = (response['sources'] as List?)?.cast<VideoSource>() ?? [];
+    final captions =
+        (response['captions'] as List?)?.cast<VideoCaption>() ?? [];
 
-class NextEpisodeNotifier extends AsyncNotifier<(int, int)> {
-  NextEpisodeNotifier(this.tmdbId);
+    if (sources.isNotEmpty) {
+      return ProviderSourceResult(
+        providerName: 'kisskh',
+        sources: sources,
+        captions: captions,
+      );
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
 
-  final String tmdbId;
+Future<ProviderSourceResult?> _videoFetchVidLink(
+  VidLinkService vidLinkService,
+  VideoSourceKey key,
+) async {
+  try {
+    final tmdbInt = int.tryParse(key.tmdbId) ?? 0;
+    final response = await vidLinkService.getSources(
+      tmdbInt,
+      isMovie: key.isMovie,
+      season: key.season,
+      episode: key.episode,
+    );
 
-  @override
-  Future<(int, int)> build() async {
-    // Placeholder: actual implementation would:
-    // 1. Read AppProvider settings for pos_tmdb_{id}_s{S}_e{E}
-    // 2. Find last watched episode
-    // 3. Return (nextSeason, nextEpisode)
-    // For now, default to S1E1
-    return (1, 1);
+    final sources = (response['sources'] as List?)?.cast<VideoSource>() ?? [];
+    final captions =
+        (response['captions'] as List?)?.cast<VideoCaption>() ?? [];
+
+    if (sources.isNotEmpty) {
+      return ProviderSourceResult(
+        providerName: 'vidlink',
+        sources: sources,
+        captions: captions,
+      );
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+Future<ProviderSourceResult?> _videoFetchVidEasy(
+  VidEasyService vidEasyService,
+  VideoSourceKey key,
+) async {
+  try {
+    final tmdbInt = int.tryParse(key.tmdbId) ?? 0;
+    final response = await vidEasyService.getSources(
+      key.title,
+      key.year,
+      tmdbInt,
+      isMovie: key.isMovie,
+      season: key.season,
+      episode: key.episode,
+    );
+
+    final sources = (response['sources'] as List?)?.cast<VideoSource>() ?? [];
+    final captions =
+        (response['captions'] as List?)?.cast<VideoCaption>() ?? [];
+
+    if (sources.isNotEmpty) {
+      return ProviderSourceResult(
+        providerName: 'videasy',
+        sources: sources,
+        captions: captions,
+      );
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+Future<ProviderSourceResult?> _videoFetchTg(
+  TgService tgService,
+  VideoSourceKey key,
+) async {
+  try {
+    if (key.isMovie) {
+      final checkResult = await tgService.checkMovie(key.tmdbId);
+      if (checkResult != null && checkResult.qualities.isNotEmpty) {
+        return const ProviderSourceResult(
+          providerName: 'tg',
+          sources: [],
+          captions: [],
+          isTg: true,
+        );
+      }
+    } else {
+      final imdbId = key.imdbId;
+      if (imdbId != null) {
+        final checkResult = await tgService.check(imdbId);
+        if (checkResult != null && checkResult.qualities.isNotEmpty) {
+          return const ProviderSourceResult(
+            providerName: 'tg',
+            sources: [],
+            captions: [],
+            isTg: true,
+          );
+        }
+      }
+    }
+    return const ProviderSourceResult(
+      providerName: 'tg',
+      sources: [],
+      captions: [],
+      isTg: true,
+    );
+  } catch (e) {
+    return const ProviderSourceResult(
+      providerName: 'tg',
+      sources: [],
+      captions: [],
+      isTg: true,
+    );
   }
 }
 
@@ -348,13 +276,10 @@ class CacheHelper {
       final prefs = await SharedPreferences.getInstance();
       final timestamp = prefs.getInt('${cacheKey}_timestamp');
       if (timestamp == null) return true;
-
       final storedTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
       final now = DateTime.now();
       final difference = now.difference(storedTime).inHours;
-
-      final isDataStale = difference >= expiryHours;
-      return isDataStale;
+      return difference >= expiryHours;
     } catch (e) {
       debugPrint('Error checking cache staleness: $e');
       return true;
@@ -367,9 +292,7 @@ class CacheHelper {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(cacheKey, data);
       await prefs.setInt(
-        '${cacheKey}_timestamp',
-        DateTime.now().millisecondsSinceEpoch,
-      );
+          '${cacheKey}_timestamp', DateTime.now().millisecondsSinceEpoch);
       debugPrint('Cache saved: $cacheKey');
     } catch (e) {
       debugPrint('Failed to save cache: $e');
@@ -380,14 +303,12 @@ class CacheHelper {
     try {
       final prefs = await SharedPreferences.getInstance();
       final isExpired = await isStale(cacheKey);
-
       if (isExpired) {
         await prefs.remove(cacheKey);
         await prefs.remove('${cacheKey}_timestamp');
         debugPrint('Cache expired and removed: $cacheKey');
         return null;
       }
-
       final data = prefs.getString(cacheKey);
       if (data != null) {
         debugPrint('Retrieved from cache: $cacheKey');
@@ -411,7 +332,7 @@ class CacheHelper {
   }
 }
 
-// ─── Media Details Provider (with 24hr cache) ──────────────────────────────
+// ─── Media Details Provider ──────────────────────────────────────────────────
 
 class MediaDetailsState {
   final RiveStreamMediaDetails? details;
@@ -422,28 +343,17 @@ class MediaDetailsState {
     this.fromCache = false,
   });
 
-  // Helper to check if we have valid data
   bool get hasData => details != null;
 }
 
-final mediaDetailsProvider = AsyncNotifierProvider.family<MediaDetailsNotifier,
-    MediaDetailsState, (String, bool)>(
-  MediaDetailsNotifier.new,
-);
-
-class MediaDetailsNotifier extends AsyncNotifier<MediaDetailsState> {
-  MediaDetailsNotifier(this.params);
-
-  final (String, bool) params;
-  final _riveService = RiveStreamService();
-
-  @override
-  Future<MediaDetailsState> build() async {
+final mediaDetailsProvider =
+    FutureProvider.family<MediaDetailsState, (String, bool)>(
+  (ref, params) async {
     final (id, isMovie) = params;
+    final riveService = RiveStreamService();
     final isTmdb = int.tryParse(id) != null;
     String tmdbId = id;
 
-    // Try cache first
     if (isTmdb) {
       final cacheKey = 'media_details_${isMovie ? "movie" : "tv"}_$tmdbId';
       final cachedData = await CacheHelper.getFromCache(cacheKey);
@@ -454,235 +364,121 @@ class MediaDetailsNotifier extends AsyncNotifier<MediaDetailsState> {
           final cachedDetails = RiveStreamMediaDetails.fromJson(json);
           return MediaDetailsState(details: cachedDetails, fromCache: true);
         } catch (e) {
-          debugPrint('Failed to parse cached data: $e');
-          await CacheHelper.invalidateCache(cacheKey);
+          debugPrint('[MediaDetailsProvider] Cache parse error: $e');
         }
-      }
-
-      // Cache miss or stale, fetch from API
-      try {
-        final tmdbIdInt = int.parse(tmdbId);
-        final details = await _riveService.getMediaDetails(
-          tmdbIdInt,
-          isMovie: isMovie,
-        );
-
-        // Cache the fresh data
-        final cacheKey = 'media_details_${isMovie ? "movie" : "tv"}_$tmdbId';
-        if (details != null) {
-          try {
-            await CacheHelper.saveToCache(
-                cacheKey, jsonEncode(details.toJson()));
-          } catch (_) {
-            // Silently fail cache save if toJson not available
-          }
-        }
-
-        return MediaDetailsState(details: details, fromCache: false);
-      } catch (e) {
-        // Return error state
-        throw Exception('Failed to load media details');
       }
     }
 
-    // For non-TMDB IDs (IMDB), convert first
     try {
-      if (id.startsWith('tt')) {
-        final tmdbId = await _riveService.findTmdbIdFromImdbId(id);
-        if (tmdbId != null) {
-          final details = await _riveService.getMediaDetails(
-            tmdbId,
-            isMovie: isMovie,
-          );
-          return MediaDetailsState(details: details, fromCache: false);
-        }
+      final details = await riveService.getMediaDetails(int.parse(tmdbId),
+          isMovie: isMovie);
+
+      if (isTmdb && details != null) {
+        final cacheKey = 'media_details_${isMovie ? "movie" : "tv"}_$tmdbId';
+        await CacheHelper.saveToCache(cacheKey, jsonEncode(details.toJson()));
       }
-      throw Exception('Invalid media ID');
+
+      return MediaDetailsState(details: details, fromCache: false);
     } catch (e) {
-      rethrow;
+      debugPrint('[MediaDetailsProvider] Fetch error: $e');
+      return const MediaDetailsState();
     }
-  }
+  },
+);
 
-  Future<void> refresh([(String, bool)? _]) async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(build);
-  }
-}
+// ─── Next Episode Provider ──────────────────────────────────────────────────
 
-// ─── Recommendations Provider ───────────────────────────────────────────────
+final nextEpisodeProvider = FutureProvider.family<(int, int), String>(
+  (ref, id) async => (1, 1),
+);
+
+// ─── Media Recommendations Provider ────────────────────────────────────────
 
 class PaginatedRecommendations {
   final List<RiveStreamMedia> items;
-  final int currentPage;
+  final int page;
   final bool hasMore;
 
   const PaginatedRecommendations({
     required this.items,
-    required this.currentPage,
+    required this.page,
     required this.hasMore,
   });
 }
 
-final mediaRecommendationsProvider = AsyncNotifierProvider.family<
-    MediaRecommendationsNotifier, PaginatedRecommendations, (String, bool)>(
-  MediaRecommendationsNotifier.new,
-);
+final mediaRecommendationsProvider =
+    FutureProvider.family<PaginatedRecommendations, (String, bool)>(
+  (ref, params) async {
+    final (tmdbId, isMovie) = params;
+    final riveService = RiveStreamService();
 
-class MediaRecommendationsNotifier
-    extends AsyncNotifier<PaginatedRecommendations> {
-  MediaRecommendationsNotifier(this.params);
-
-  final (String, bool) params;
-  final _riveService = RiveStreamService();
-
-  @override
-  Future<PaginatedRecommendations> build() async {
-    final (id, isMovie) = params;
-
-    return await _fetchPage(id, isMovie, 1);
-  }
-
-  Future<PaginatedRecommendations> _fetchPage(
-      String id, bool isMovie, int page) async {
     try {
-      final tmdbId = int.tryParse(id);
-      if (tmdbId == null) {
-        return PaginatedRecommendations(
-            items: [], currentPage: page, hasMore: false);
-      }
-
-      final recommendations = await _riveService.getRecommendations(
-        tmdbId,
+      final recommendations = await riveService.getRecommendations(
+        int.parse(tmdbId),
         isMovie: isMovie,
+        page: 1,
       );
-
       return PaginatedRecommendations(
         items: recommendations,
-        currentPage: page,
-        hasMore: recommendations.length >=
-            20, // Assumes API returns 20 items per page
+        page: 1,
+        hasMore: recommendations.length >= 20,
       );
     } catch (e) {
-      debugPrint('Failed to load recommendations: $e');
-      return PaginatedRecommendations(
-        items: [],
-        currentPage: page,
-        hasMore: false,
-      );
+      debugPrint('[MediaRecommendationsProvider] Error: $e');
+      return const PaginatedRecommendations(items: [], page: 1, hasMore: false);
     }
-  }
-
-  Future<void> loadMore([(String, bool)? _]) async {
-    final currentState = state.asData?.value;
-    if (currentState == null || !currentState.hasMore) return;
-
-    state = AsyncData(PaginatedRecommendations(
-      items: currentState.items,
-      currentPage: currentState.currentPage,
-      hasMore: true, // Keep true while loading
-    ));
-
-    final (id, isMovie) = this.params;
-    final nextPage = currentState.currentPage + 1;
-
-    try {
-      final newItems = await _fetchPage(id, isMovie, nextPage);
-
-      state = AsyncData(PaginatedRecommendations(
-        items: [...currentState.items, ...newItems.items],
-        currentPage: nextPage,
-        hasMore: newItems.hasMore,
-      ));
-    } catch (e) {
-      state = AsyncData(PaginatedRecommendations(
-        items: currentState.items,
-        currentPage: currentState.currentPage,
-        hasMore: false, // Disable further loading on error
-      ));
-    }
-  }
-}
-
-// ─── Cast Provider ─────────────────────────────────────────────────────────────
-
-final mediaCastProvider = AsyncNotifierProvider.family<MediaCastNotifier,
-    List<CastMember>, (String, bool)>(
-  MediaCastNotifier.new,
+  },
 );
 
-class MediaCastNotifier extends AsyncNotifier<List<CastMember>> {
-  MediaCastNotifier(this.params);
+// ─── Media Cast Provider ────────────────────────────────────────────────────
 
-  final (String, bool) params;
-  final _riveService = RiveStreamService();
-
-  @override
-  Future<List<CastMember>> build() async {
-    final (id, isMovie) = params;
+final mediaCastProvider =
+    FutureProvider.family<List<CastMember>, (String, bool)>(
+  (ref, params) async {
+    final (tmdbId, isMovie) = params;
+    final riveService = RiveStreamService();
 
     try {
-      final tmdbId = int.tryParse(id);
-      if (tmdbId == null) return [];
-
-      final cast = await _riveService.getCast(tmdbId, isMovie: isMovie);
-      return cast;
+      final cast =
+          await riveService.getCast(int.parse(tmdbId), isMovie: isMovie);
+      return cast.take(10).toList();
     } catch (e) {
-      debugPrint('Failed to load cast: $e');
+      debugPrint('[MediaCastProvider] Error: $e');
       return [];
     }
-  }
-}
-
-// ─── Selected Season/Episode State Providers ─────────────────────────────────
-
-class SelectedSeasonNotifier extends Notifier<int> {
-  @override
-  int build() => 1;
-
-  void setSeason(int season) => state = season;
-}
-
-class SelectedEpisodeNotifier extends Notifier<int> {
-  @override
-  int build() => 1;
-
-  void setEpisode(int episode) => state = episode;
-}
-
-final selectedSeasonProvider =
-    NotifierProvider<SelectedSeasonNotifier, int>(SelectedSeasonNotifier.new);
-final selectedEpisodeProvider =
-    NotifierProvider<SelectedEpisodeNotifier, int>(SelectedEpisodeNotifier.new);
-
-// ─── Scroll Controller Provider for Infinite Scrolling ─────────────────────
-
-final scrollControllerProvider = Provider<ScrollController>((ref) {
-  final controller = ScrollController();
-  ref.onDispose(() => controller.dispose());
-  return controller;
-});
-
-// ─── Recommendations Pagination State ──────────────────────────────────────
-
-class RecommendationsPageNotifier extends Notifier<int> {
-  @override
-  int build() => 1;
-
-  void setPage(int page) => state = page;
-}
-
-class RecommendationsHasMoreNotifier extends Notifier<bool> {
-  @override
-  bool build() => true;
-
-  void setHasMore(bool hasMore) => state = hasMore;
-}
-
-final recommendationsPageProvider =
-    NotifierProvider<RecommendationsPageNotifier, int>(
-  RecommendationsPageNotifier.new,
+  },
 );
-final recommendationsHasMoreProvider =
-    NotifierProvider<RecommendationsHasMoreNotifier, bool>(
-  RecommendationsHasMoreNotifier.new,
+
+// ─── Season Episodes Provider ──────────────────────────────────────────────
+
+class SeasonEpisodesKey {
+  final String id;
+  final int season;
+
+  const SeasonEpisodesKey(this.id, this.season);
+
+  @override
+  bool operator ==(Object other) =>
+      other is SeasonEpisodesKey && id == other.id && season == other.season;
+
+  @override
+  int get hashCode => Object.hash(id, season);
+}
+
+final seasonEpisodesProvider =
+    FutureProvider.family<List<RiveStreamEpisode>, SeasonEpisodesKey>(
+  (ref, key) async {
+    final riveService = RiveStreamService();
+    final tvId = int.tryParse(key.id);
+
+    if (tvId == null) return [];
+
+    try {
+      final episodes = await riveService.getSeasonDetails(tvId, key.season);
+      return episodes;
+    } catch (e) {
+      debugPrint('[SeasonEpisodesProvider] Error: $e');
+      return [];
+    }
+  },
 );

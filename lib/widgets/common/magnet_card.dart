@@ -147,7 +147,8 @@ class MagnetCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(Icons.speed, size: 11, color: AppTheme.textMuted),
+                      const Icon(Icons.speed,
+                          size: 11, color: AppTheme.textMuted),
                       const SizedBox(width: 3),
                       Text(
                         formatSpeed(magnet.downloadSpeed),
@@ -155,7 +156,8 @@ class MagnetCard extends StatelessWidget {
                             color: AppTheme.textMuted, fontSize: 10),
                       ),
                       const SizedBox(width: 10),
-                      Icon(Icons.group, size: 11, color: AppTheme.textMuted),
+                      const Icon(Icons.group,
+                          size: 11, color: AppTheme.textMuted),
                       const SizedBox(width: 3),
                       Text(
                         '${magnet.seeders} seeders',

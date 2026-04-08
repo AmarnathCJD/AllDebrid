@@ -1,25 +1,30 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import '../../providers/riverpod_compat.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:ui';
 import '../../providers/providers.dart';
 import '../../theme/app_theme.dart';
 import '../../services/imdb_service.dart';
 
+import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:open_filex/open_filex.dart';
-import '../../widgets/common/common_widgets.dart';
-import '../../widgets/common/download_card.dart';
+import '../../services/tg_service.dart';
+import '../../services/tg_native_service.dart';
+import '../../widgets/widgets.dart';
 import '../../utils/helpers.dart';
 import '../player/player_screen.dart';
 
-class DownloadsScreen extends StatefulWidget {
+class DownloadsScreen extends ConsumerStatefulWidget {
   const DownloadsScreen({super.key});
 
   @override
-  State<DownloadsScreen> createState() => _DownloadsScreenState();
+  ConsumerState<DownloadsScreen> createState() => _DownloadsScreenState();
 }
 
-class _DownloadsScreenState extends State<DownloadsScreen> {
+class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
   final ImdbService _imdbService = ImdbService();
   final Map<String, ImdbSearchResult> _imdbCache = {};
   final Set<String> _expandedShows = {};
@@ -28,8 +33,10 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final provider = context.read<DownloadProvider>();
-      provider.initialize().then((_) => _loadImdbInfo(provider.downloads));
+      final notifier = ref.read(downloadNotifierProvider.notifier);
+      final state = ref.read(downloadNotifierProvider);
+      unawaited(
+          notifier.initialize().then((_) => _loadImdbInfo(state.downloads)));
     });
   }
 
@@ -78,53 +85,49 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final downloadState = ref.watch(downloadNotifierProvider);
+    final downloads = downloadState.downloads;
+
+    if (downloads.length > _imdbCache.length) {
+      unawaited(_loadImdbInfo(downloads));
+    }
+
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       body: SafeArea(
-        child: Consumer<DownloadProvider>(
-          builder: (context, downloadProvider, _) {
-            final downloads = downloadProvider.downloads;
-
-            // Trigger load if new downloads appeared or list changed size
-            if (downloads.length > _imdbCache.length) {
-              _loadImdbInfo(downloads);
-            }
-
-            return Column(
-              children: [
-                _buildHeader(context, downloadProvider),
-                if (downloads.isEmpty)
-                  const Expanded(
-                    child: EmptyState(
-                      icon: Icons.download_done_rounded,
-                      title: 'No Downloads',
-                      subtitle: 'Downloads will appear here',
-                    ),
-                  )
-                else
-                  Expanded(
-                    child: RefreshIndicator(
-                      onRefresh: () async {
-                        final provider = context.read<DownloadProvider>();
-                        await provider.initialize();
-                        _loadImdbInfo(provider.downloads);
-                      },
-                      color: AppTheme.primaryColor,
-                      backgroundColor: AppTheme.cardColor,
-                      child:
-                          _buildGroupedDownloads(downloads, downloadProvider),
-                    ),
-                  ),
-              ],
-            );
-          },
+        child: Column(
+          children: [
+            _buildHeader(context, downloadState, ref),
+            if (downloads.isEmpty)
+              const Expanded(
+                child: EmptyState(
+                  icon: Icons.download_done_rounded,
+                  title: 'No Downloads',
+                  subtitle: 'Downloads will appear here',
+                ),
+              )
+            else
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: () async {
+                    final notifier =
+                        ref.read(downloadNotifierProvider.notifier);
+                    await notifier.initialize();
+                    final state = ref.read(downloadNotifierProvider);
+                    unawaited(_loadImdbInfo(state.downloads));
+                  },
+                  color: AppTheme.primaryColor,
+                  backgroundColor: AppTheme.cardColor,
+                  child: _buildGroupedDownloads(downloads),
+                ),
+              ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildGroupedDownloads(
-      List<dynamic> downloads, DownloadProvider provider) {
+  Widget _buildGroupedDownloads(List<dynamic> downloads) {
     // Group downloads by IMDb ID for TV shows
     final Map<String, List<dynamic>> tvShowGroups = {};
     final List<dynamic> standaloneItems = [];
@@ -253,9 +256,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                         Container(
                           width: double.infinity,
                           height: 200,
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             color: AppTheme.surfaceColor,
-                            borderRadius: const BorderRadius.only(
+                            borderRadius: BorderRadius.only(
                               topLeft: Radius.circular(14),
                               topRight: Radius.circular(14),
                             ),
@@ -376,7 +379,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                         .map(
                           (download) => Padding(
                             padding: const EdgeInsets.only(bottom: 8),
-                            child: _buildEpisodeCard(download, provider),
+                            child: _buildEpisodeCard(download),
                           ),
                         )
                         .toList(),
@@ -387,13 +390,13 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
         } else {
           // Standalone item
           final download = standaloneItems[index - tvShowGroups.length];
-          return _buildDownloadCard(download, provider);
+          return _buildDownloadCard(download);
         }
       },
     );
   }
 
-  Widget _buildEpisodeCard(dynamic download, DownloadProvider provider) {
+  Widget _buildEpisodeCard(dynamic download) {
     final imdb = _imdbCache[download.filename];
     final isCompleted = download.isCompleted;
     final isDownloading = !isCompleted && download.progress < 1.0;
@@ -417,7 +420,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                 value: download.progress,
                 minHeight: 3,
                 backgroundColor: AppTheme.borderColor,
-                valueColor: AlwaysStoppedAnimation<Color>(
+                valueColor: const AlwaysStoppedAnimation<Color>(
                   AppTheme.primaryColor,
                 ),
               ),
@@ -488,13 +491,10 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    // Action buttons
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // If downloading: Play, Pause, Stop buttons
                         if (isDownloading) ...[
-                          // Play button (green)
                           if (isVideoFile(download.filename) ||
                               isAudioFile(download.filename))
                             Tooltip(
@@ -505,7 +505,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                     await _imdbService.addToRecents(imdb);
                                   }
                                   if (context.mounted) {
-                                    Navigator.push(
+                                    unawaited(Navigator.push(
                                       context,
                                       MaterialPageRoute(
                                         builder: (_) => PlayerScreen(
@@ -514,7 +514,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                           isLocal: true,
                                         ),
                                       ),
-                                    );
+                                    ));
                                   }
                                 },
                                 borderRadius: BorderRadius.circular(6),
@@ -534,16 +534,15 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                               ),
                             ),
                           const SizedBox(width: 6),
-                          // Pause button (yellow/amber)
                           Tooltip(
                             message: download.isPaused ? 'Resume' : 'Pause',
                             child: InkWell(
                               onTap: download.isPaused
-                                  ? () => context
-                                      .read<DownloadProvider>()
+                                  ? () => ref
+                                      .read(downloadNotifierProvider.notifier)
                                       .resumeDownload(download.id)
-                                  : () => context
-                                      .read<DownloadProvider>()
+                                  : () => ref
+                                      .read(downloadNotifierProvider.notifier)
                                       .pauseDownload(download.id),
                               borderRadius: BorderRadius.circular(6),
                               child: Container(
@@ -570,7 +569,6 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                             child: InkWell(
                               onTap: () => _confirmDeleteEpisode(
                                 context,
-                                provider,
                                 download,
                               ),
                               borderRadius: BorderRadius.circular(6),
@@ -602,7 +600,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                     await _imdbService.addToRecents(imdb);
                                   }
                                   if (context.mounted) {
-                                    Navigator.push(
+                                    unawaited(Navigator.push(
                                       context,
                                       MaterialPageRoute(
                                         builder: (_) => PlayerScreen(
@@ -611,7 +609,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                           isLocal: true,
                                         ),
                                       ),
-                                    );
+                                    ));
                                   }
                                 },
                                 borderRadius: BorderRadius.circular(6),
@@ -664,7 +662,6 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                             child: InkWell(
                               onTap: () => _confirmDeleteEpisode(
                                 context,
-                                provider,
                                 download,
                               ),
                               borderRadius: BorderRadius.circular(6),
@@ -698,17 +695,16 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   Future<void> _confirmDeleteEpisode(
     BuildContext context,
-    DownloadProvider provider,
     dynamic download,
   ) async {
     final confirmed = await _showModernDeleteDialog(context, download.filename);
 
     if (confirmed == true) {
-      provider.removeDownload(download.id);
+      ref.read(downloadNotifierProvider.notifier).removeDownload(download.id);
     }
   }
 
-  Widget _buildDownloadCard(dynamic download, DownloadProvider provider) {
+  Widget _buildDownloadCard(dynamic download) {
     final imdb = _imdbCache[download.filename];
 
     return DownloadCard(
@@ -721,12 +717,14 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       isPaused: download.isPaused,
       isCompleted: download.isCompleted,
       isFailed: download.isFailed,
-      onPause: () =>
-          context.read<DownloadProvider>().pauseDownload(download.id),
-      onResume: () =>
-          context.read<DownloadProvider>().resumeDownload(download.id),
-      onCancel: () => _confirmDelete(context, provider, download),
-      onDelete: () => _confirmDelete(context, provider, download),
+      onPause: () => ref
+          .read(downloadNotifierProvider.notifier)
+          .pauseDownload(download.id),
+      onResume: () => ref
+          .read(downloadNotifierProvider.notifier)
+          .resumeDownload(download.id),
+      onCancel: () => _confirmDelete(context, download),
+      onDelete: () => _confirmDelete(context, download),
       onOpen: () => OpenFilex.open(download.savePath),
       onStream: isVideoFile(download.filename) || isAudioFile(download.filename)
           ? () async {
@@ -734,7 +732,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                 await _imdbService.addToRecents(imdb);
               }
               if (context.mounted) {
-                Navigator.push(
+                unawaited(Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) => PlayerScreen(
@@ -743,7 +741,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                       isLocal: true,
                     ),
                   ),
-                );
+                ));
               }
             }
           : null,
@@ -766,12 +764,11 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     ).animate().fadeIn(duration: 200.ms);
   }
 
-  Future<void> _confirmDelete(
-      BuildContext context, DownloadProvider provider, dynamic download) async {
+  Future<void> _confirmDelete(BuildContext context, dynamic download) async {
     final confirmed = await _showModernDeleteDialog(context, download.filename);
 
     if (confirmed == true) {
-      provider.removeDownload(download.id);
+      ref.read(downloadNotifierProvider.notifier).removeDownload(download.id);
     }
   }
 
@@ -925,7 +922,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     );
   }
 
-  Widget _buildHeader(BuildContext context, DownloadProvider provider) {
+  Widget _buildHeader(
+      BuildContext context, DownloadState provider, WidgetRef ref) {
     final hasCompleted = provider.downloads.any((d) => d.isCompleted);
 
     return Padding(
@@ -933,17 +931,17 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Expanded(
+          const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('YOUR',
+                Text('YOUR',
                     style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
                         color: AppTheme.textMuted,
                         letterSpacing: 1.5)),
-                const Text('DOWNLOADS',
+                Text('DOWNLOADS',
                     style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.w900,
@@ -953,18 +951,236 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
               ],
             ),
           ),
-          if (hasCompleted)
+          if (hasCompleted) ...[
+            _buildHeaderAction(
+              context,
+              Icons.send_rounded,
+              Colors.blue,
+              'Play Telegram Link',
+              () {
+                HapticFeedback.mediumImpact();
+                _showTelegramPlayDialog();
+              },
+            ),
+            const SizedBox(width: 8),
             _buildHeaderAction(
               context,
               Icons.cleaning_services_rounded,
               AppTheme.accentColor,
               'Clean Completed',
-              provider.clearCompleted,
+              () =>
+                  ref.read(downloadNotifierProvider.notifier).clearCompleted(),
               isFilled: true,
+            ),
+          ] else
+            _buildHeaderAction(
+              context,
+              Icons.send_rounded,
+              Colors.blue,
+              'Play Telegram Link',
+              () {
+                HapticFeedback.mediumImpact();
+                _showTelegramPlayDialog();
+              },
             ),
         ],
       ),
     ).animate().fadeIn(duration: 300.ms);
+  }
+
+  void _showTelegramPlayDialog() {
+    final controller = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Padding(
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF151515),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(
+                color: Colors.white.withValues(alpha: 0.1), width: 1.5),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.send_rounded,
+                        color: Colors.blue, size: 20),
+                  ),
+                  const SizedBox(width: 14),
+                  Text(
+                    'PLAY TELEGRAM LINK',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'https://t.me/channel/12345',
+                  hintStyle:
+                      TextStyle(color: Colors.white.withValues(alpha: 0.3)),
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.05),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: ElevatedButton(
+                  onPressed: () => _handleTelegramPlay(controller.text.trim()),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    'RESOLVE & PLAY',
+                    style: GoogleFonts.outfit(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleTelegramPlay(String link) async {
+    if (link.isEmpty) return;
+
+    Navigator.pop(context); // Close dialog
+
+    // Simple validation and parsing
+    final uri = Uri.tryParse(link.startsWith('http') ? link : 'https://$link');
+    if (uri == null || (uri.host != 't.me' && uri.host != 'telegram.me')) {
+      showAppSnackBar(context, 'Invalid Telegram link format',
+          type: AppFeedbackType.error);
+      return;
+    }
+
+    final segments = uri.pathSegments;
+    debugPrint('[TGPlay] URI Segments: $segments');
+    if (segments.length < 2) {
+      showAppSnackBar(context, 'Invalid Telegram link: missing message ID',
+          type: AppFeedbackType.error);
+      return;
+    }
+
+    final username = segments[0];
+    final msgIdStr =
+        segments[segments.length - 1]; // Use last segment for msgId
+    final msgId = int.tryParse(msgIdStr);
+
+    debugPrint(
+        '[TGPlay] Resolved from URI -> Username: $username, MessageID: $msgId');
+
+    if (msgId == null) {
+      showAppSnackBar(context, 'Invalid Message ID',
+          type: AppFeedbackType.error);
+      return;
+    }
+
+    showAppSnackBar(context, 'Resolving Telegram link...',
+        type: AppFeedbackType.info);
+    debugPrint('[TGPlay] Starting resolution for link: $link');
+    debugPrint('[TGPlay] Parsed - Username: $username, MessageID: $msgId');
+
+    try {
+      final nativeService = TGNativeService();
+
+      if (!nativeService.isInitialized) {
+        debugPrint('[TGPlay] ERROR: Native service not initialized');
+        throw Exception(
+            'Telegram fetcher not initialized. Please log in first.');
+      }
+
+      // 1. Resolve username to get IDs
+      debugPrint('[TGPlay] Calling resolveUsername($username)...');
+      final resolved = await nativeService.resolveUsername(username);
+      final channelId = resolved['channel_id'];
+      final accessHash = resolved['access_hash'];
+
+      debugPrint(
+          '[TGPlay] Resolved IDs - ChannelID: $channelId, AccessHash: $accessHash');
+
+      // 2. Fetch metadata
+      debugPrint('[TGPlay] Fetching metadata for msgId: $msgId...');
+      final metadata = await nativeService.fetchFileMetadata(
+        channelId: channelId,
+        accessHash: accessHash,
+        msgId: msgId,
+      );
+
+      debugPrint(
+          '[TGPlay] Found Metadata: ${metadata.name} (Size: ${metadata.size}, Mime: ${metadata.mimeType})');
+
+      // 3. Ensure port is ready
+      if (TgService.nativePort == null || TgService.nativePort == 0) {
+        debugPrint('[TGPlay] Starting streaming server...');
+        TgService.nativePort = await nativeService.startStreamingServer();
+        debugPrint('[TGPlay] Server started on port: ${TgService.nativePort}');
+      }
+
+      final streamUrl =
+          'http://127.0.0.1:${TgService.nativePort}/stream?msg_id=$msgId&channel_id=$channelId&access_hash=$accessHash';
+      debugPrint('[TGPlay] Generated Stream URL: $streamUrl');
+
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PlayerScreen(
+              url: streamUrl,
+              title: metadata.name ?? 'Telegram File',
+            ),
+          ),
+        );
+      }
+    } catch (e, stack) {
+      debugPrint('[TGPlay] CRITICAL ERROR: $e');
+      debugPrint('[TGPlay] Stack: $stack');
+      if (mounted) {
+        showAppSnackBar(context, 'Failed to play TG link: ${e.toString()}',
+            type: AppFeedbackType.error);
+      }
+    }
   }
 
   Widget _buildHeaderAction(

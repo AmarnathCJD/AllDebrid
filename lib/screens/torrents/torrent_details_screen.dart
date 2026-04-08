@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../providers/riverpod_compat.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/app_theme.dart';
 import '../../models/torrent.dart';
 import '../../services/torrent_scraper_service.dart';
-import '../../providers/magnet_provider.dart';
+import '../../providers/providers.dart';
 
 // Torrent Details Screen
-class TorrentDetailsScreen extends StatefulWidget {
+class TorrentDetailsScreen extends ConsumerStatefulWidget {
   final TorrentEntry entry;
   final TorrentScraperService scraperService;
 
@@ -20,10 +20,11 @@ class TorrentDetailsScreen extends StatefulWidget {
   });
 
   @override
-  State<TorrentDetailsScreen> createState() => _TorrentDetailsScreenState();
+  ConsumerState<TorrentDetailsScreen> createState() =>
+      _TorrentDetailsScreenState();
 }
 
-class _TorrentDetailsScreenState extends State<TorrentDetailsScreen> {
+class _TorrentDetailsScreenState extends ConsumerState<TorrentDetailsScreen> {
   List<TorrentDownload> _downloads = [];
   bool _isLoading = false;
   String? _error;
@@ -96,11 +97,11 @@ class _TorrentDetailsScreenState extends State<TorrentDetailsScreen> {
                   border: Border.all(color: AppTheme.errorColor, width: 2),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(Icons.error_outline,
+                child: const Icon(Icons.error_outline,
                     size: 40, color: AppTheme.errorColor),
               ),
               const SizedBox(height: 20),
-              Text(
+              const Text(
                 'ERROR',
                 style: TextStyle(
                   fontSize: 12,
@@ -138,11 +139,11 @@ class _TorrentDetailsScreenState extends State<TorrentDetailsScreen> {
                 border: Border.all(color: AppTheme.borderColor, width: 2),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(Icons.download_outlined,
+              child: const Icon(Icons.download_outlined,
                   size: 40, color: AppTheme.textMuted),
             ),
             const SizedBox(height: 16),
-            Text(
+            const Text(
               'NO DOWNLOADS',
               style: TextStyle(
                 fontSize: 12,
@@ -165,7 +166,7 @@ class _TorrentDetailsScreenState extends State<TorrentDetailsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'AVAILABLE DOWNLOADS',
                   style: TextStyle(
                     fontSize: 11,
@@ -178,25 +179,21 @@ class _TorrentDetailsScreenState extends State<TorrentDetailsScreen> {
                 ...(_downloads.asMap().entries.map((entry) {
                   final index = entry.key;
                   final download = entry.value;
-                  return Consumer<MagnetProvider>(
-                    builder: (context, magnetProvider, _) {
-                      final magnetHash = RegExp(r'btih:([a-fA-F0-9]+)')
-                          .firstMatch(download.magnetLink)
-                          ?.group(1)
-                          ?.toUpperCase();
-                      final isAdded = magnetHash != null &&
-                          magnetProvider.magnets.any((magnet) =>
-                              magnet.hash.toUpperCase() == magnetHash);
+                  final magnetProvider = ref.watch(magnetNotifierProvider);
+                  final magnetHash = RegExp(r'btih:([a-fA-F0-9]+)')
+                      .firstMatch(download.magnetLink)
+                      ?.group(1)
+                      ?.toUpperCase();
+                  final isAdded = magnetHash != null &&
+                      magnetProvider.magnets.any(
+                          (magnet) => magnet.hash.toUpperCase() == magnetHash);
 
-                      return DownloadCard(
-                        download: download,
-                        index: index,
-                        isAdded: isAdded,
-                        onAddMagnet: () => _addToMagnet(download),
-                        onRemoveMagnet: () =>
-                            _removeMagnet(download, magnetProvider),
-                      );
-                    },
+                  return DownloadCard(
+                    download: download,
+                    index: index,
+                    isAdded: isAdded,
+                    onAddMagnet: () => _addToMagnet(download),
+                    onRemoveMagnet: () => _removeMagnet(download),
                   );
                 }).toList()),
               ],
@@ -209,7 +206,9 @@ class _TorrentDetailsScreenState extends State<TorrentDetailsScreen> {
 
   Future<void> _addToMagnet(TorrentDownload download) async {
     try {
-      await context.read<MagnetProvider>().uploadMagnet(download.magnetLink);
+      await ref
+          .read(magnetNotifierProvider.notifier)
+          .uploadMagnet(download.magnetLink);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -230,10 +229,11 @@ class _TorrentDetailsScreenState extends State<TorrentDetailsScreen> {
     }
   }
 
-  Future<void> _removeMagnet(
-      TorrentDownload download, MagnetProvider magnetProvider) async {
+  Future<void> _removeMagnet(TorrentDownload download) async {
     try {
-      await magnetProvider.refreshMagnets(showLoading: false);
+      await ref
+          .read(magnetNotifierProvider.notifier)
+          .refreshMagnets(showLoading: false);
 
       final magnetHash = RegExp(r'btih:([a-fA-F0-9]+)')
           .firstMatch(download.magnetLink)
@@ -243,13 +243,15 @@ class _TorrentDetailsScreenState extends State<TorrentDetailsScreen> {
         throw Exception('Invalid magnet link');
       }
 
-      final magnetList = magnetProvider.magnets;
+      final magnetList = ref.read(magnetNotifierProvider).magnets;
       final magnetItem = magnetList.firstWhere(
         (magnet) => magnet.hash.toUpperCase() == magnetHash,
         orElse: () => throw Exception('Magnet not found'),
       );
 
-      await magnetProvider.deleteMagnet(magnetItem.id.toString());
+      await ref
+          .read(magnetNotifierProvider.notifier)
+          .deleteMagnet(magnetItem.id.toString());
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -397,7 +399,8 @@ class DownloadCard extends StatelessWidget {
                               label: const Text('ADDED'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppTheme.successColor,
-                                side: BorderSide(color: AppTheme.successColor),
+                                side: const BorderSide(
+                                    color: AppTheme.successColor),
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 12),
                               ),

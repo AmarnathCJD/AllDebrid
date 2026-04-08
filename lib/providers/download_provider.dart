@@ -1,52 +1,73 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/download.dart';
 import '../services/download_service.dart';
 
-/// Download Provider - State management for downloads
-class DownloadProvider extends ChangeNotifier {
-  final DownloadService _downloadService;
+/// Download State
+class DownloadState {
+  final List<Download> downloads;
+  final bool isInitialized;
 
-  List<Download> _downloads = [];
-  bool _isInitialized = false;
-  StreamSubscription<List<Download>>? _subscription;
-
-  DownloadProvider({required DownloadService downloadService})
-      : _downloadService = downloadService;
-
-  // Getters
-  List<Download> get downloads => _downloads;
-  bool get isInitialized => _isInitialized;
+  const DownloadState({
+    this.downloads = const [],
+    this.isInitialized = false,
+  });
 
   List<Download> get activeDownloads =>
-      _downloads.where((d) => d.isDownloading).toList();
+      downloads.where((d) => d.isDownloading).toList();
 
   List<Download> get pausedDownloads =>
-      _downloads.where((d) => d.isPaused).toList();
+      downloads.where((d) => d.isPaused).toList();
 
   List<Download> get completedDownloads =>
-      _downloads.where((d) => d.isCompleted).toList();
+      downloads.where((d) => d.isCompleted).toList();
 
   List<Download> get failedDownloads =>
-      _downloads.where((d) => d.isFailed).toList();
+      downloads.where((d) => d.isFailed).toList();
 
   int get totalSpeed => activeDownloads.fold(0, (sum, d) => sum + d.speed);
 
+  DownloadState copyWith({
+    List<Download>? downloads,
+    bool? isInitialized,
+  }) {
+    return DownloadState(
+      downloads: downloads ?? this.downloads,
+      isInitialized: isInitialized ?? this.isInitialized,
+    );
+  }
+}
+
+/// Download Notifier
+class DownloadNotifier extends Notifier<DownloadState> {
+  late final DownloadService _downloadService;
+  StreamSubscription<List<Download>>? _subscription;
+
+  @override
+  DownloadState build() {
+    _downloadService = ref.watch(downloadServiceProvider);
+
+    ref.onDispose(() {
+      unawaited(_subscription?.cancel());
+      _downloadService.dispose();
+    });
+
+    return const DownloadState();
+  }
+
   /// Initialize download service
   Future<void> initialize() async {
-    if (_isInitialized) return;
+    if (state.isInitialized) return;
 
     await _downloadService.initialize();
-    _downloads = _downloadService.currentDownloads;
+    final downloads = _downloadService.currentDownloads;
 
     // Listen to download updates
     _subscription = _downloadService.downloads.listen((downloads) {
-      _downloads = downloads;
-      notifyListeners();
+      state = state.copyWith(downloads: downloads);
     });
 
-    _isInitialized = true;
-    notifyListeners();
+    state = state.copyWith(downloads: downloads, isInitialized: true);
   }
 
   /// Start a new download
@@ -107,11 +128,14 @@ class DownloadProvider extends ChangeNotifier {
   Future<void> removeAll() async {
     await _downloadService.removeAll();
   }
-
-  @override
-  void dispose() {
-    _subscription?.cancel();
-    _downloadService.dispose();
-    super.dispose();
-  }
 }
+
+final downloadServiceProvider = Provider<DownloadService>(
+  (ref) => throw UnimplementedError(
+    'downloadServiceProvider must be overridden',
+  ),
+);
+
+final downloadNotifierProvider = NotifierProvider<DownloadNotifier, DownloadState>(() {
+  return DownloadNotifier();
+});

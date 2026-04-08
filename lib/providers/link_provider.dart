@@ -1,45 +1,58 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../services/services.dart';
+import 'app_provider.dart';
 
-/// Link Provider - State management for link operations
-class LinkProvider extends ChangeNotifier {
-  final AllDebridService? Function() _getService;
+/// Link State
+class LinkState {
+  final List<UnlockedLink> unlockedLinks;
+  final List<LinkInfo> linkInfos;
+  final bool isLoading;
+  final String? error;
 
-  List<UnlockedLink> _unlockedLinks = [];
-  List<LinkInfo> _linkInfos = [];
-  bool _isLoading = false;
-  String? _error;
+  const LinkState({
+    this.unlockedLinks = const [],
+    this.linkInfos = const [],
+    this.isLoading = false,
+    this.error,
+  });
 
-  LinkProvider({required AllDebridService? Function() getService})
-      : _getService = getService;
+  LinkState copyWith({
+    List<UnlockedLink>? unlockedLinks,
+    List<LinkInfo>? linkInfos,
+    bool? isLoading,
+    String? error,
+  }) {
+    return LinkState(
+      unlockedLinks: unlockedLinks ?? this.unlockedLinks,
+      linkInfos: linkInfos ?? this.linkInfos,
+      isLoading: isLoading ?? this.isLoading,
+      error: error ?? this.error,
+    );
+  }
+}
 
-  // Getters
-  List<UnlockedLink> get unlockedLinks => _unlockedLinks;
-  List<LinkInfo> get linkInfos => _linkInfos;
-  bool get isLoading => _isLoading;
-  String? get error => _error;
+/// Link Notifier
+class LinkNotifier extends Notifier<LinkState> {
+  @override
+  LinkState build() => const LinkState();
 
-  AllDebridService? get _service => _getService();
+  AllDebridService? get _service => ref.read(appNotifierProvider).allDebridService;
 
   /// Get link info for multiple links
   Future<List<LinkInfo>?> getLinkInfo(List<String> links,
       {String? password}) async {
     if (_service == null) return null;
 
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    state = state.copyWith(isLoading: true, error: null);
 
     try {
-      _linkInfos = await _service!.getLinkInfo(links, password: password);
-      return _linkInfos;
+      final infos = await _service!.getLinkInfo(links, password: password);
+      state = state.copyWith(linkInfos: infos, isLoading: false);
+      return infos;
     } catch (e) {
-      _error = e.toString();
+      state = state.copyWith(error: e.toString(), isLoading: false);
       return null;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
     }
   }
 
@@ -47,26 +60,18 @@ class LinkProvider extends ChangeNotifier {
   Future<UnlockedLink?> unlockLink(String link, {String? password}) async {
     if (_service == null) return null;
 
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    state = state.copyWith(isLoading: true, error: null);
 
     try {
       final unlocked = await _service!.unlockLink(link, password: password);
-      _unlockedLinks.insert(0, unlocked);
-
+      final updated = [unlocked, ...state.unlockedLinks];
       // Keep only last 50 links
-      if (_unlockedLinks.length > 50) {
-        _unlockedLinks = _unlockedLinks.take(50).toList();
-      }
-
+      final trimmed = updated.take(50).toList();
+      state = state.copyWith(unlockedLinks: trimmed, isLoading: false);
       return unlocked;
     } catch (e) {
-      _error = e.toString();
+      state = state.copyWith(error: e.toString(), isLoading: false);
       return null;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
     }
   }
 
@@ -77,8 +82,7 @@ class LinkProvider extends ChangeNotifier {
     try {
       return await _service!.getRedirectorLinks(link);
     } catch (e) {
-      _error = e.toString();
-      notifyListeners();
+      state = state.copyWith(error: e.toString());
       return null;
     }
   }
@@ -87,18 +91,15 @@ class LinkProvider extends ChangeNotifier {
   Future<StreamingLink?> getStreamingLink(String id, String streamId) async {
     if (_service == null) return null;
 
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    state = state.copyWith(isLoading: true, error: null);
 
     try {
-      return await _service!.getStreamingLink(id, streamId);
+      final link = await _service!.getStreamingLink(id, streamId);
+      state = state.copyWith(isLoading: false);
+      return link;
     } catch (e) {
-      _error = e.toString();
+      state = state.copyWith(error: e.toString(), isLoading: false);
       return null;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
     }
   }
 
@@ -106,36 +107,30 @@ class LinkProvider extends ChangeNotifier {
   Future<String?> waitForDelayedLink(String delayedId) async {
     if (_service == null) return null;
 
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    state = state.copyWith(isLoading: true, error: null);
 
     try {
-      return await _service!.waitForDelayedLink(delayedId);
+      final link = await _service!.waitForDelayedLink(delayedId);
+      state = state.copyWith(isLoading: false);
+      return link;
     } catch (e) {
-      _error = e.toString();
+      state = state.copyWith(error: e.toString(), isLoading: false);
       return null;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
     }
   }
 
   Future<String?> createZip(List<String> links) async {
     if (_service == null) return null;
 
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    state = state.copyWith(isLoading: true, error: null);
 
     try {
-      return await _service!.createZip(links);
+      final zipId = await _service!.createZip(links);
+      state = state.copyWith(isLoading: false);
+      return zipId;
     } catch (e) {
-      _error = e.toString();
+      state = state.copyWith(error: e.toString(), isLoading: false);
       return null;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
     }
   }
 
@@ -152,14 +147,15 @@ class LinkProvider extends ChangeNotifier {
 
   /// Clear unlocked links history
   void clearHistory() {
-    _unlockedLinks.clear();
-    _linkInfos.clear();
-    notifyListeners();
+    state = state.copyWith(unlockedLinks: [], linkInfos: []);
   }
 
   /// Clear error
   void clearError() {
-    _error = null;
-    notifyListeners();
+    state = state.copyWith(error: null);
   }
 }
+
+final linkNotifierProvider = NotifierProvider<LinkNotifier, LinkState>(() {
+  return LinkNotifier();
+});

@@ -1,42 +1,67 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../services/services.dart';
+import 'app_provider.dart';
 
-/// Magnet Provider - State management for magnets
-class MagnetProvider extends ChangeNotifier {
-  final AllDebridService? Function() _getService;
+/// Magnet State
+class MagnetState {
+  final List<MagnetStatus> magnets;
+  final bool isLoading;
+  final String? error;
+  final Set<String> pendingDeletions;
 
-  List<MagnetStatus> _magnets = [];
-  bool _isLoading = false;
-  String? _error;
-  Timer? _refreshTimer;
-
-  MagnetProvider({required AllDebridService? Function() getService})
-      : _getService = getService;
-
-  // Getters
-  List<MagnetStatus> get magnets => _magnets;
-  bool get isLoading => _isLoading;
-  String? get error => _error;
+  const MagnetState({
+    this.magnets = const [],
+    this.isLoading = false,
+    this.error,
+    this.pendingDeletions = const {},
+  });
 
   List<MagnetStatus> get activeMagnets =>
-      _magnets.where((m) => !m.isReady && !m.isError).toList();
+      magnets.where((m) => !m.isReady && !m.isError).toList();
 
   List<MagnetStatus> get readyMagnets =>
-      _magnets.where((m) => m.isReady).toList();
+      magnets.where((m) => m.isReady).toList();
 
   List<MagnetStatus> get errorMagnets =>
-      _magnets.where((m) => m.isError).toList();
+      magnets.where((m) => m.isError).toList();
 
-  AllDebridService? get _service => _getService();
+  MagnetState copyWith({
+    List<MagnetStatus>? magnets,
+    bool? isLoading,
+    String? error,
+    Set<String>? pendingDeletions,
+  }) {
+    return MagnetState(
+      magnets: magnets ?? this.magnets,
+      isLoading: isLoading ?? this.isLoading,
+      error: error ?? this.error,
+      pendingDeletions: pendingDeletions ?? this.pendingDeletions,
+    );
+  }
+}
+
+/// Magnet Notifier
+class MagnetNotifier extends Notifier<MagnetState> {
+  Timer? _refreshTimer;
+
+  @override
+  MagnetState build() {
+    ref.onDispose(() {
+      stopAutoRefresh();
+    });
+    return const MagnetState();
+  }
+
+  AllDebridService? get _service => ref.read(appNotifierProvider).allDebridService;
 
   /// Start auto refresh for active magnets
   void startAutoRefresh() {
     _refreshTimer?.cancel();
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (activeMagnets.isNotEmpty) {
-        refreshMagnets(showLoading: false);
+      if (state.activeMagnets.isNotEmpty) {
+        unawaited(refreshMagnets(showLoading: false));
       }
     });
   }
@@ -51,18 +76,14 @@ class MagnetProvider extends ChangeNotifier {
   Future<void> fetchMagnets() async {
     if (_service == null) return;
 
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    state = state.copyWith(isLoading: true, error: null);
 
     try {
-      _magnets = await _service!.getAllMagnets();
-      _magnets.sort((a, b) => b.uploadDate.compareTo(a.uploadDate));
+      final magnets = await _service!.getAllMagnets();
+      magnets.sort((a, b) => b.uploadDate.compareTo(a.uploadDate));
+      state = state.copyWith(magnets: magnets, isLoading: false);
     } catch (e) {
-      _error = e.toString();
-    } finally {
-      _isLoading = false;
-      notifyListeners();
+      state = state.copyWith(error: e.toString(), isLoading: false);
     }
   }
 
@@ -71,57 +92,60 @@ class MagnetProvider extends ChangeNotifier {
     if (_service == null) return;
 
     if (showLoading) {
-      _isLoading = true;
-      notifyListeners();
+      state = state.copyWith(isLoading: true);
     }
 
     try {
       final freshMagnets = await _service!.getAllMagnets();
       // Filter out pending deletions
-      _magnets = freshMagnets
-          .where((m) => !_pendingDeletions.contains(m.id.toString()))
+      final filtered = freshMagnets
+          .where((m) => !state.pendingDeletions.contains(m.id.toString()))
           .toList();
-      _magnets.sort((a, b) => b.uploadDate.compareTo(a.uploadDate));
-      _error = null;
+      filtered.sort((a, b) => b.uploadDate.compareTo(a.uploadDate));
+      state = state.copyWith(magnets: filtered, error: null);
     } catch (e) {
-      _error = e.toString();
+      state = state.copyWith(error: e.toString());
     } finally {
       if (showLoading) {
-        _isLoading = false;
+        state = state.copyWith(isLoading: false);
+      } else {
+        // Still notify without isLoading flag
+        state = MagnetState(
+          magnets: state.magnets,
+          isLoading: state.isLoading,
+          error: state.error,
+          pendingDeletions: state.pendingDeletions,
+        );
       }
-      notifyListeners();
     }
   }
 
-  // Placeholder for local torrent service if we integrate one
-  // final TorrentService _torrentService = TorrentService();
-
   /// Upload a magnet
   Future<MagnetUploadResult?> uploadMagnet(String magnet) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    state = state.copyWith(isLoading: true, error: null);
 
-    // 1. Try AllDebrid first
-    if (_service != null) {
-      try {
-        final result = await _service!.uploadSingleMagnet(magnet);
-        await refreshMagnets(showLoading: false);
-        return result;
-      } catch (e) {
-        // If AllDebrid fails, we fallback to local or show error
-        // print('AllDebrid upload failed: $e. Attempting fallback...');
-        _error = e.toString();
+    try {
+      if (_service != null) {
+        try {
+          final result = await _service!.uploadSingleMagnet(magnet);
+          await refreshMagnets(showLoading: false);
+          state = state.copyWith(isLoading: false);
+          return result;
+        } catch (e) {
+          state = state.copyWith(error: e.toString(), isLoading: false);
+        }
+      } else {
+        state = state.copyWith(
+          error: "AllDebrid service not available",
+          isLoading: false,
+        );
       }
-    } else {
-      _error = "AllDebrid service not available";
+
+      return null;
+    } catch (e) {
+      state = state.copyWith(error: e.toString(), isLoading: false);
+      return null;
     }
-
-    // Fallback logic could go here
-
-    _isLoading = false;
-    notifyListeners();
-    return null;
   }
 
   /// Get magnet files
@@ -131,8 +155,7 @@ class MagnetProvider extends ChangeNotifier {
     try {
       return await _service!.getMagnetFiles(magnetId);
     } catch (e) {
-      _error = e.toString();
-      notifyListeners();
+      state = state.copyWith(error: e.toString());
       return null;
     }
   }
@@ -145,37 +168,38 @@ class MagnetProvider extends ChangeNotifier {
       final unlocked = await _service!.unlockLink(link);
       return unlocked.link;
     } catch (e) {
-      _error = e.toString();
-      notifyListeners();
+      state = state.copyWith(error: e.toString());
       return null;
     }
   }
-
-  final Set<String> _pendingDeletions = {};
 
   /// Delete a magnet
   Future<bool> deleteMagnet(String magnetId) async {
     if (_service == null) return false;
 
     // Optimistic update
-    _pendingDeletions.add(magnetId);
-    _magnets.removeWhere((m) => m.id.toString() == magnetId);
-    notifyListeners();
+    final newPending = Set<String>.from(state.pendingDeletions);
+    newPending.add(magnetId);
+    final newMagnets = state.magnets
+        .where((m) => m.id.toString() != magnetId)
+        .toList();
+    state = state.copyWith(magnets: newMagnets, pendingDeletions: newPending);
 
     try {
       await _service!.deleteMagnet(magnetId);
       // Keep in pending deletions briefly to ensure next refresh doesn't bring it back immediately
-      // if the server is slow to update its list
-      Future.delayed(const Duration(seconds: 5), () {
-        _pendingDeletions.remove(magnetId);
-      });
+      unawaited(Future<void>.delayed(const Duration(seconds: 5), () {
+        final updated = Set<String>.from(state.pendingDeletions);
+        updated.remove(magnetId);
+        state = state.copyWith(pendingDeletions: updated);
+      }));
       return true;
     } catch (e) {
-      _error = e.toString();
-      _pendingDeletions.remove(magnetId); // Revert on error
-      // We might need to refresh to get it back if we removed it
-      refreshMagnets(showLoading: false);
-      notifyListeners();
+      final updated = Set<String>.from(state.pendingDeletions);
+      updated.remove(magnetId);
+      state = state.copyWith(error: e.toString(), pendingDeletions: updated);
+      // Refresh to get it back if we removed it
+      unawaited(refreshMagnets(showLoading: false));
       return false;
     }
   }
@@ -189,21 +213,17 @@ class MagnetProvider extends ChangeNotifier {
       await refreshMagnets(showLoading: false);
       return true;
     } catch (e) {
-      _error = e.toString();
-      notifyListeners();
+      state = state.copyWith(error: e.toString());
       return false;
     }
   }
 
   /// Clear error
   void clearError() {
-    _error = null;
-    notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    stopAutoRefresh();
-    super.dispose();
+    state = state.copyWith(error: null);
   }
 }
+
+final magnetNotifierProvider = NotifierProvider<MagnetNotifier, MagnetState>(() {
+  return MagnetNotifier();
+});

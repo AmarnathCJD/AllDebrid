@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/imdb_service.dart';
 import '../services/rivestream_service.dart';
@@ -66,7 +68,7 @@ class RiveTrendingNotifier extends AsyncNotifier<RiveTrendingState> {
 
     if (cachedResults[0].isNotEmpty || cachedResults[1].isNotEmpty) {
       // Return cached data immediately, then fetch fresh in background
-      Future.microtask(_fetchFresh);
+      unawaited(Future<void>.microtask(_fetchFresh));
       return _buildState(cachedResults[0], cachedResults[1]);
     }
 
@@ -121,18 +123,9 @@ final carouselIndexProvider =
 
 // ─── Genre Provider ────────────────────────────────────────────────────────
 
-final genreProvider =
-    AsyncNotifierProvider.family<GenreNotifier, GenreInterestResult?, String>(
-        GenreNotifier.new);
-
-class GenreNotifier extends AsyncNotifier<GenreInterestResult?> {
-  GenreNotifier(this.genreId);
-
-  final String genreId;
-  final _riveService = RiveStreamService();
-
-  @override
-  Future<GenreInterestResult?> build() async {
-    return await _riveService.getGenreInterest(genreId);
-  }
-}
+final genreProvider = FutureProvider.family<GenreInterestResult?, String>(
+  (ref, genre) async {
+    final riveService = RiveStreamService();
+    return await riveService.getGenreInterest(genre);
+  },
+);

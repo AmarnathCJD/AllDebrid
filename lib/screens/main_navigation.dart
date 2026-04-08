@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../providers/riverpod_compat.dart';
-import '../providers/navigation_provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 
 import 'home/home_screen.dart';
@@ -10,14 +11,14 @@ import 'downloads/downloads_screen.dart';
 import 'watchlist/watchlist_screen.dart';
 import 'settings/settings_screen.dart';
 
-class MainNavigation extends StatefulWidget {
+class MainNavigation extends ConsumerStatefulWidget {
   const MainNavigation({super.key});
 
   @override
-  State<MainNavigation> createState() => _MainNavigationState();
+  ConsumerState<MainNavigation> createState() => _MainNavigationState();
 }
 
-class _MainNavigationState extends State<MainNavigation> {
+class _MainNavigationState extends ConsumerState<MainNavigation> {
   final List<Widget> _screens = [
     HomeScreen(key: HomeScreen.homeKey),
     const BrowsePage(),
@@ -31,31 +32,31 @@ class _MainNavigationState extends State<MainNavigation> {
     super.initState();
     // Ensure navigation index is valid after screen changes
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final navigationProvider = context.read<NavigationProvider>();
-      if (navigationProvider.currentIndex >= _screens.length) {
-        navigationProvider.setIndex(0);
+      final currentIndex = ref.read(navigationNotifierProvider);
+      if (currentIndex >= _screens.length) {
+        ref.read(navigationNotifierProvider.notifier).setIndex(0);
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final navigationProvider = Provider.of<NavigationProvider>(context);
+    final currentIndex = ref.watch(navigationNotifierProvider);
 
-    int currentIndex = navigationProvider.currentIndex;
-    if (currentIndex >= _screens.length) {
-      currentIndex = 0;
+    int safeIndex = currentIndex;
+    if (safeIndex >= _screens.length) {
+      safeIndex = 0;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        navigationProvider.setIndex(0);
+        ref.read(navigationNotifierProvider.notifier).setIndex(0);
       });
     }
 
     void onNavTap(int index) {
       HapticFeedback.selectionClick();
-      if (index == 0 && currentIndex == 0) {
+      if (index == 0 && safeIndex == 0) {
         HomeScreen.homeKey.currentState?.scrollToTop();
       } else {
-        navigationProvider.setIndex(index);
+        ref.read(navigationNotifierProvider.notifier).setIndex(index);
       }
     }
 

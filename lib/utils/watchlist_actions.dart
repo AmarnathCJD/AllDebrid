@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/app_provider.dart';
 import '../services/imdb_service.dart';
@@ -6,12 +7,13 @@ import '../widgets/widgets.dart';
 
 Future<bool> toggleWatchlistWithFeedback(
   BuildContext context,
-  AppProvider provider,
+  WidgetRef ref,
+  AppState appState,
   ImdbSearchResult item, {
   bool? wasInWatchlist,
 }) async {
-  final existed = wasInWatchlist ?? provider.isInWatchlist(item.id);
-  await provider.toggleWatchlist(item);
+  final existed = wasInWatchlist ?? appState.isInWatchlist(item.id);
+  await ref.read(appNotifierProvider.notifier).toggleWatchlist(item);
 
   if (context.mounted) {
     showAppSnackBar(
@@ -26,15 +28,16 @@ Future<bool> toggleWatchlistWithFeedback(
 
 Future<bool> addToWatchlistIfMissing(
   BuildContext context,
-  AppProvider provider,
+  WidgetRef ref,
+  AppState appState,
   ImdbSearchResult item,
 ) async {
-  final existed = provider.isInWatchlist(item.id);
+  final existed = appState.isInWatchlist(item.id);
   if (existed) {
     return false;
   }
 
-  await provider.toggleWatchlist(item);
+  await ref.read(appNotifierProvider.notifier).toggleWatchlist(item);
   if (context.mounted) {
     showAppSnackBar(
       context,

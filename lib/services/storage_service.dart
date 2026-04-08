@@ -8,9 +8,14 @@ class StorageService {
   static const String _settingsKey = 'settings';
 
   SharedPreferences? _prefs;
+  Map<String, dynamic> _settingsCache = <String, dynamic>{};
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+    final rawSettings = _prefs!.getString(_settingsKey);
+    if (rawSettings != null && rawSettings.isNotEmpty) {
+      _settingsCache = Map<String, dynamic>.from(jsonDecode(rawSettings));
+    }
   }
 
   SharedPreferences get prefs {
@@ -51,15 +56,16 @@ class StorageService {
   }
 
   Future<void> saveSetting(String key, dynamic value) async {
-    final settings = getSettings();
-    settings[key] = value;
-    await prefs.setString(_settingsKey, jsonEncode(settings));
+    if (value == null) {
+      _settingsCache.remove(key);
+    } else {
+      _settingsCache[key] = value;
+    }
+    await prefs.setString(_settingsKey, jsonEncode(_settingsCache));
   }
 
   Map<String, dynamic> getSettings() {
-    final jsonString = prefs.getString(_settingsKey);
-    if (jsonString == null) return {};
-    return Map<String, dynamic>.from(jsonDecode(jsonString));
+    return Map<String, dynamic>.from(_settingsCache);
   }
 
   T? getSetting<T>(String key, [T? defaultValue]) {

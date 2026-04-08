@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
-import '../../providers/riverpod_compat.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../providers/providers.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common/common_widgets.dart';
 
-class ApiKeyScreen extends StatefulWidget {
+class ApiKeyScreen extends ConsumerStatefulWidget {
   const ApiKeyScreen({super.key});
 
   @override
-  State<ApiKeyScreen> createState() => _ApiKeyScreenState();
+  ConsumerState<ApiKeyScreen> createState() => _ApiKeyScreenState();
 }
 
-class _ApiKeyScreenState extends State<ApiKeyScreen> {
+class _ApiKeyScreenState extends ConsumerState<ApiKeyScreen> {
   final _apiKeyController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
@@ -33,8 +33,8 @@ class _ApiKeyScreenState extends State<ApiKeyScreen> {
     });
 
     try {
-      final success = await context
-          .read<AppProvider>()
+      final success = await ref
+          .read(appNotifierProvider.notifier)
           .initializeWithApiKey(_apiKeyController.text);
 
       if (!success && mounted) {

@@ -28,7 +28,7 @@ class MediaInfoErrorWidget extends StatelessWidget {
                 color: AppTheme.errorColor.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(
+              child: const Icon(
                 Icons.error_rounded,
                 size: 48,
                 color: AppTheme.errorColor,
@@ -228,7 +228,7 @@ class ProviderErrorWidget extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(
+                    side: const BorderSide(
                       color: AppTheme.primaryColor,
                       width: 1,
                     ),

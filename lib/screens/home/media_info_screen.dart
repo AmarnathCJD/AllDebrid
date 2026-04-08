@@ -12,8 +12,7 @@ import '../../theme/app_theme.dart';
 import '../torrents/torrent_search_screen.dart';
 import '../../services/video_source_service.dart';
 import '../player/player_screen.dart';
-import '../../providers/riverpod_compat.dart' as provider_pkg hide Consumer;
-import '../../providers/app_provider.dart';
+import '../../providers/providers.dart';
 import 'dart:ui';
 
 import 'package:shimmer/shimmer.dart';
@@ -33,10 +32,9 @@ import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../utils/helpers.dart';
 import '../../utils/watchlist_actions.dart';
-import '../../providers/media_info_providers.dart';
 import 'package:hugeicons/hugeicons.dart';
-import '../../providers/download_provider.dart';
 import 'widgets/media_detail_widgets.dart';
+import '../../widgets/common/blurhash_placeholder.dart';
 
 class MediaInfoScreen extends ConsumerStatefulWidget {
   final ImdbSearchResult item;
@@ -57,21 +55,16 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
   bool _isLoading = true;
   int? _selectedSeason = 1;
   int? _selectedEpisode;
-  List<RiveStreamEpisode> _episodes = [];
-  bool _loadingEpisodes = false;
   bool _loadingVideo = false;
   bool _loadingMovie = false;
   ScrollController? _scrollController;
-  List<RiveStreamMedia> _recommendations = [];
-  bool _loadingRecommendations = true;
-  List<CastMember> _cast = [];
-  bool _loadingCast = true;
   bool _overviewExpanded = false;
   TVMazeShowInfo? _tvMazeInfo;
   bool _isReminderSet = false;
   Timer? _scrollDebounceTimer;
   final ValueNotifier<bool> _showTitleNotifier = ValueNotifier<bool>(false);
-  bool _didPrefetchSources = false;
+  String? _hydratedDetailsKey;
+  String? _lastDetailsSyncToken;
   Player? _trailerPreviewPlayer;
   VideoController? _trailerPreviewController;
   String? _trailerPreviewUrl;
@@ -106,10 +99,70 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     _scrollController = ScrollController();
     _scrollController!.addListener(_onScroll);
     _item = widget.item;
+    // Schedule prefetch and trailer initialization after first frame is painted
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _prefetchVideoSourcesAsync();
+        // Initialize trailer autoplay
+        Future.delayed(const Duration(milliseconds: 800)).then((_) {
+          if (mounted) {
+            _initializeTrailerPreview();
+          }
+        });
+      }
+    });
+  }
 
-    // Start loading immediately but prioritize transition
-    _loadDetails();
-    _initializeTrailerPreview();
+  /// Prefetch video sources in background isolate after UI frame completes
+  void _prefetchVideoSourcesAsync() {
+    // Run in background without blocking UI
+    Future.delayed(const Duration(milliseconds: 500)).then((_) {
+      if (!mounted) return;
+      _triggerVideoSourcesPrefetch();
+    });
+  }
+
+  /// Trigger the actual prefetch (runs on background event loop)
+  void _triggerVideoSourcesPrefetch() {
+    try {
+      final tmdbId = int.tryParse(_item.id);
+      if (tmdbId == null) return;
+
+      final isMovie = _item.kind?.toLowerCase() != 'tvseries' &&
+          _item.kind?.toLowerCase() != 'tvepisode' &&
+          _item.kind?.toLowerCase() != 'series';
+
+      // For series, find the next episode to watch
+      int seasonToFetch = 1;
+      int episodeToFetch = 1;
+
+      if (!isMovie) {
+        // For series, use selected season/episode or default to S1E1
+        seasonToFetch = _selectedSeason ?? 1;
+        episodeToFetch = _selectedEpisode ?? 1;
+        debugPrint(
+            '[MediaInfo] Series detected - prefetching S$seasonToFetch E$episodeToFetch');
+      }
+
+      final videoSourceKey = VideoSourceKey(
+        tmdbId: _item.id,
+        imdbId: _item.id,
+        title: _item.title,
+        year: _item.year,
+        isMovie: isMovie,
+        season: seasonToFetch,
+        episode: episodeToFetch,
+      );
+
+      // Trigger the provider to fetch all sources in background
+      // This happens on a separate event loop tick, won't block UI
+      ref.read(videoSourcesProvider(videoSourceKey));
+
+      debugPrint(
+          '[MediaInfo] 🚀 Video sources prefetch started for ${_item.title} (${isMovie ? 'Movie' : 'Series'})');
+    } catch (e) {
+      debugPrint('[MediaInfo] ⚠️ Error prefetching video sources: $e');
+    }
   }
 
   void _onScroll() {
@@ -132,11 +185,11 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     _trailerControlsTimer?.cancel();
     _trailerPreviewPlayer?.dispose();
     if (_trailerPreviewFullscreen) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      SystemChrome.setPreferredOrientations([
+      unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+      unawaited(SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
         DeviceOrientation.portraitDown,
-      ]);
+      ]));
     }
     _showTitleNotifier.dispose();
     _scrollController?.dispose();
@@ -212,144 +265,127 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     );
   }
 
-  Future<void> _loadDetails() async {
-    try {
-      String id = widget.item.id;
-      bool isTmdb = int.tryParse(id) != null;
+  bool get _requestedIsMovie {
+    final kind = (widget.item.kind ?? '').toLowerCase();
+    if (kind.isEmpty) return true;
+    return kind == 'movie' || !kind.contains('tv');
+  }
 
-      if (!isTmdb && id.startsWith('tt')) {
-        final riveService = RiveStreamService();
-        final tmdbId = await riveService.findTmdbIdFromImdbId(id);
-        if (tmdbId != null) {
-          id = tmdbId.toString();
-          isTmdb = true;
-        }
-      }
+  (String, bool) get _mediaDetailsParams => (widget.item.id, _requestedIsMovie);
 
-      if (isTmdb) {
-        final riveService = RiveStreamService();
-        final tmdbIdInt = int.parse(id);
+  RiveStreamMediaDetails? get _resolvedDetails {
+    final providerValue = ref.read(mediaDetailsProvider(_mediaDetailsParams));
+    return providerValue.asData?.value.details ?? _details;
+  }
 
-        // 1. Try cache first
-        final cachedDetails = await riveService.getCachedMediaDetails(tmdbIdInt,
-            isMovie: widget.item.kind?.toLowerCase() == 'movie' ||
-                !widget.item.kind!.toLowerCase().contains('tv'));
+  AsyncValue<List<RiveStreamEpisode>> _watchSeasonEpisodes() {
+    if (!_isTvShow ||
+        _selectedSeason == null ||
+        int.tryParse(_item.id) == null) {
+      return const AsyncData<List<RiveStreamEpisode>>(<RiveStreamEpisode>[]);
+    }
 
-        if (cachedDetails != null && mounted) {
-          _details = cachedDetails;
-          setState(() {
-            _isLoading = false;
-            // Update metadata but DO NOT change poster URL yet to avoid Hero flicker during transition
-            _item = _item.copyWith(
-              id: id,
-              description: cachedDetails.overview,
-              rating: cachedDetails.voteAverage.toStringAsFixed(1),
-              year: (cachedDetails.releaseDate != null &&
-                      cachedDetails.releaseDate!.isNotEmpty)
-                  ? cachedDetails.releaseDate!.split('-').first
-                  : (cachedDetails.firstAirDate != null &&
-                          cachedDetails.firstAirDate!.isNotEmpty
-                      ? cachedDetails.firstAirDate!.split('-').first
-                      : widget.item.year),
-              backdropUrl: cachedDetails.ogBackdropUrl,
-              genres: cachedDetails.genres.join(', '),
-              duration: cachedDetails.runtime != null
-                  ? '${cachedDetails.runtime} min'
-                  : null,
+    return ref.watch(
+        seasonEpisodesProvider(SeasonEpisodesKey(_item.id, _selectedSeason!)));
+  }
+
+  void _scheduleBindDetailsState(AsyncValue<MediaDetailsState> next) {
+    final token = next.when(
+      data: (state) => state.details == null
+          ? 'data:null:${state.fromCache}'
+          : 'data:${state.details!.id}:${state.fromCache}',
+      loading: () => 'loading',
+      error: (error, _) => 'error:${error.runtimeType}',
+    );
+
+    if (_lastDetailsSyncToken == token) return;
+    _lastDetailsSyncToken = token;
+
+    debugPrint(
+      '[MediaInfoScreen] schedule bind for ${widget.item.id} token=$token',
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _bindDetailsState(next);
+    });
+  }
+
+  void _bindDetailsState(AsyncValue<MediaDetailsState> next) {
+    next.when(
+      data: (state) {
+        final details = state.details;
+        if (!mounted) return;
+        debugPrint(
+          '[MediaInfoScreen] details data for ${widget.item.id} '
+          'fromCache=${state.fromCache} hasDetails=${details != null}',
+        );
+        if (details == null) {
+          if (_isLoading) {
+            debugPrint(
+              '[MediaInfoScreen] details null, turning off skeleton for ${widget.item.id}',
             );
-          });
-
-          // Background load extra data after cache hit
-          _fetchExtraData(id, isTmdb);
+            setState(() => _isLoading = false);
+          }
+          return;
         }
 
-        // 2. Load fresh details
-        var details = await riveService.getMediaDetails(
-          tmdbIdInt,
-          isMovie: widget.item.kind?.toLowerCase() == 'movie' ||
-              !widget.item.kind!.toLowerCase().contains('tv'),
+        final resolvedId = details.id.toString();
+        final updatedItem = _item.copyWith(
+          id: resolvedId,
+          description: details.overview,
+          rating: details.voteAverage.toStringAsFixed(1),
+          year: (details.releaseDate != null && details.releaseDate!.isNotEmpty)
+              ? details.releaseDate!.split('-').first
+              : (details.firstAirDate != null &&
+                      details.firstAirDate!.isNotEmpty)
+                  ? details.firstAirDate!.split('-').first
+                  : widget.item.year,
+          backdropUrl: details.ogBackdropUrl,
+          genres: details.genres.join(', '),
+          duration: details.runtime != null ? '${details.runtime} min' : null,
         );
 
-        if (details != null && mounted) {
+        final detailsKey =
+            '${details.id}:${updatedItem.year}:${updatedItem.title}';
+        final shouldRunOneTimeEffects = _hydratedDetailsKey != detailsKey;
+        _hydratedDetailsKey = detailsKey;
+
+        setState(() {
           _details = details;
-          setState(() {
-            _isLoading = false;
-            _item = _item.copyWith(
-              id: id,
-              description: details.overview,
-              rating: details.voteAverage.toStringAsFixed(1),
-              year: (details.releaseDate != null &&
-                      details.releaseDate!.isNotEmpty)
-                  ? details.releaseDate!.split('-').first
-                  : (details.firstAirDate != null &&
-                          details.firstAirDate!.isNotEmpty
-                      ? details.firstAirDate!.split('-').first
-                      : widget.item.year),
-              backdropUrl: details.ogBackdropUrl,
-              genres: details.genres.join(', '),
-              duration:
-                  details.runtime != null ? '${details.runtime} min' : null,
-            );
-          });
+          _item = updatedItem;
+          _isLoading = false;
+        });
+        debugPrint(
+          '[MediaInfoScreen] hydrated details for ${widget.item.id} '
+          'resolvedId=${details.id} shouldRunOneTimeEffects=$shouldRunOneTimeEffects',
+        );
 
-          if (cachedDetails == null) {
-            _fetchExtraData(id, isTmdb);
+        if (shouldRunOneTimeEffects) {
+          if (_isTvShow) {
+            unawaited(_fetchTvMazeInfo());
           }
-
-          _initializeTrailerPreview(retry: true);
-        } else if (cachedDetails == null && mounted) {
-          setState(() => _isLoading = false);
-        }
-
-        // Final "silent" quality upgrade after everything is settled
-        Future.delayed(const Duration(seconds: 2), () {
-          if (mounted) {
+          unawaited(Future<void>.delayed(const Duration(seconds: 2), () {
+            if (!mounted) return;
             final upgraded = _upgradeImageQuality(_item);
             if (upgraded.posterUrl != _item.posterUrl) {
               setState(() => _item = upgraded);
             }
-          }
-        });
-      } else {
-        final details = await _imdbService.fetchDetails(widget.item.id);
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _item = widget.item.copyWith(
-              kind: details.kind ?? widget.item.kind,
-              rating: widget.item.rating ?? details.rating,
-              description: widget.item.description ?? details.description,
-              year:
-                  widget.item.year.isNotEmpty ? widget.item.year : details.year,
-              posterUrl: details.posterUrl.isNotEmpty
-                  ? details.posterUrl
-                  : widget.item.posterUrl,
-            );
-          });
-          _fetchExtraData(widget.item.id, false);
-          _initializeTrailerPreview(retry: true);
-
-          Future.delayed(const Duration(seconds: 2), () {
-            if (mounted) setState(() => _item = _upgradeImageQuality(_item));
-          });
+          }));
         }
-      }
-    } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  void _fetchExtraData(String id, bool isTmdb) {
-    if (!mounted) return;
-    final isTv = _isTvShow;
-
-    if (isTv && isTmdb) _fetchSeasonEpisodes(_selectedSeason ?? 1);
-    if (isTv) _fetchTvMazeInfo();
-
-    _loadRecommendations(id, isTmdb: isTmdb, isMovie: !isTv);
-    if (isTmdb) _loadCast(int.parse(id), isMovie: !isTv);
-
-    _primeProviderSources();
+      },
+      error: (_, __) {
+        debugPrint(
+          '[MediaInfoScreen] details error for ${widget.item.id}, hiding skeleton',
+        );
+        if (mounted && _isLoading) {
+          setState(() => _isLoading = false);
+        }
+      },
+      loading: () {
+        debugPrint('[MediaInfoScreen] details loading for ${widget.item.id}');
+      },
+    );
   }
 
   VideoSourceKey? _createVideoSourceKey({
@@ -377,8 +413,9 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
       }
     }
 
-    final imdbId = (_details?.imdbId != null && _details!.imdbId!.isNotEmpty)
-        ? _details!.imdbId
+    final details = _resolvedDetails;
+    final imdbId = (details?.imdbId != null && details!.imdbId!.isNotEmpty)
+        ? details.imdbId
         : (_item.id.startsWith('tt') ? _item.id : null);
 
     return VideoSourceKey(
@@ -390,124 +427,6 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
       season: s,
       episode: e,
     );
-  }
-
-  void _primeProviderSources() {
-    if (!mounted || _didPrefetchSources) return;
-
-    final tmdbId = int.tryParse(_item.id);
-    if (tmdbId == null) return;
-
-    int s = 1;
-    int e = 1;
-    if (_isTvShow) {
-      final appProvider = context.read<AppProvider>();
-      final next = _findNextEpisode(appProvider);
-      s = next['season'] ?? 1;
-      e = next['episode'] ?? 1;
-    }
-
-    final key = _createVideoSourceKey(seasonNumber: s, episodeNumber: e);
-    if (key == null) return;
-
-    _didPrefetchSources = true;
-    unawaited(ref.read(videoSourcesProvider(key).future));
-  }
-
-  Future<void> _loadRecommendations(String id,
-      {required bool isTmdb, required bool isMovie}) async {
-    try {
-      String? imdbId;
-      int? tmdbId;
-      final riveService = RiveStreamService();
-
-      if (isTmdb) {
-        tmdbId = int.tryParse(id);
-        if (_details?.imdbId != null && _details!.imdbId!.isNotEmpty) {
-          imdbId = _details!.imdbId;
-        } else if (tmdbId != null) {
-          imdbId =
-              await riveService.getImdbIdFromTmdbId(tmdbId, isMovie: isMovie);
-        }
-      } else {
-        imdbId = id;
-        tmdbId = await riveService.findTmdbIdFromImdbId(imdbId);
-        if (tmdbId == null && _item.title.isNotEmpty) {
-          tmdbId = await riveService.findTmdbIdByTitleAndYear(
-            _item.title,
-            _item.year,
-            isMovie: isMovie,
-          );
-        }
-      }
-
-      List<RiveStreamMedia> finalRecs = [];
-
-      if (imdbId != null) {
-        final recs = await _imdbService.getRecommendations(imdbId);
-
-        if (recs.isNotEmpty) {
-          finalRecs = recs
-              .map((e) => RiveStreamMedia(
-                    id: 0,
-                    title: e.title,
-                    posterPath: e.posterUrl,
-                    mediaType: isMovie ? 'movie' : 'tv',
-                    voteAverage: double.tryParse(e.rating ?? '0') ?? 0.0,
-                    releaseDate: e.year.isNotEmpty ? e.year : '',
-                    originalTitle: e.id,
-                  ))
-              .toList();
-        }
-      }
-
-      // 2. Fallback to TMDB if IMDb failed (AWS WAF 202 issue)
-      if (finalRecs.isEmpty && tmdbId != null) {
-        print(
-            'IMDb recommendations failed or returned empty. Falling back to TMDB...');
-        finalRecs =
-            await riveService.getRecommendations(tmdbId, isMovie: isMovie);
-      }
-
-      if (mounted) {
-        setState(() {
-          _recommendations = finalRecs;
-          _loadingRecommendations = false;
-        });
-      }
-    } catch (e) {
-      print('Error loading recommendations: $e');
-      if (mounted) setState(() => _loadingRecommendations = false);
-    }
-  }
-
-  Future<void> _loadCast(int id, {required bool isMovie}) async {
-    try {
-      final riveService = RiveStreamService();
-
-      // 1. Try cache
-      final cachedCast =
-          await riveService.getCachedCastAndCrew(id, isMovie: isMovie);
-      if (cachedCast.isNotEmpty && mounted) {
-        setState(() {
-          _cast = (cachedCast['cast'] as List).cast<CastMember>();
-          _loadingCast = false;
-        });
-      }
-
-      // 2. Fetch fresh
-      final credits = await riveService.getCastAndCrew(id, isMovie: isMovie);
-
-      if (mounted) {
-        setState(() {
-          _cast = (credits['cast'] as List).cast<CastMember>();
-          _loadingCast = false;
-        });
-      }
-    } catch (e) {
-      print('Error loading cast: $e');
-      if (mounted) setState(() => _loadingCast = false);
-    }
   }
 
   bool get _isTvShow {
@@ -581,7 +500,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     try {
       final player = Player();
       final controller = VideoController(player);
-      player.setVolume(_trailerPreviewMuted ? 0 : 65);
+      await player.setVolume(_trailerPreviewMuted ? 0 : 65);
       await player.open(Media(url), play: true);
 
       if (!mounted) {
@@ -608,14 +527,36 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     }
   }
 
+  Future<RiveStreamEpisode?> _resolveEpisodeForPlayback(
+      int seasonNumber, int episodeNumber) async {
+    final tmdbId = int.tryParse(_item.id);
+    if (tmdbId == null) return null;
+
+    final service = RiveStreamService();
+    var episodes = await service.getCachedSeasonDetails(tmdbId, seasonNumber);
+    episodes = episodes.isNotEmpty
+        ? episodes
+        : await service.getSeasonDetails(tmdbId, seasonNumber);
+
+    if (episodes.isEmpty) return null;
+
+    for (final ep in episodes) {
+      if (ep.episodeNumber == episodeNumber) {
+        return ep;
+      }
+    }
+
+    return episodes.first;
+  }
+
   void _toggleTrailerPreviewMute() {
     final player = _trailerPreviewPlayer;
     if (player == null) return;
 
     setState(() {
       _trailerPreviewMuted = !_trailerPreviewMuted;
-      player.setVolume(_trailerPreviewMuted ? 0 : 65);
     });
+    unawaited(player.setVolume(_trailerPreviewMuted ? 0 : 65));
   }
 
   void _toggleTrailerPreviewPlayPause() {
@@ -623,9 +564,9 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     if (player == null) return;
 
     if (_trailerPreviewPlaying) {
-      player.pause();
+      unawaited(player.pause());
     } else {
-      player.play();
+      unawaited(player.play());
     }
 
     setState(() {
@@ -647,21 +588,22 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
   void _toggleTrailerPreviewFullscreen() {
     final player = _trailerPreviewPlayer;
     if (!_trailerPreviewFullscreen && player != null) {
-      player.setVolume(65);
+      unawaited(player.setVolume(65));
     }
 
     if (_trailerPreviewFullscreen) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      SystemChrome.setPreferredOrientations([
+      unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+      unawaited(SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
         DeviceOrientation.portraitDown,
-      ]);
+      ]));
     } else {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-      SystemChrome.setPreferredOrientations([
+      unawaited(
+          SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
+      unawaited(SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
-      ]);
+      ]));
     }
 
     setState(() {
@@ -729,7 +671,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     final url = _trailerPreviewUrl ?? await _resolveTrailerStreamUrl();
 
     if (url != null && mounted) {
-      SystemChrome.setPreferredOrientations([
+      await SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
       ]);
@@ -745,7 +687,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
       );
 
       // Reset to portrait after coming back
-      SystemChrome.setPreferredOrientations([
+      await SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
         DeviceOrientation.portraitDown,
       ]);
@@ -856,8 +798,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                   IconButton(
                     onPressed: () {
                       final newPos = position - const Duration(seconds: 10);
-                      player.seek(
-                          newPos < Duration.zero ? Duration.zero : newPos);
+                      unawaited(player.seek(
+                          newPos < Duration.zero ? Duration.zero : newPos));
                       _showTrailerControlsBriefly();
                     },
                     icon: const Icon(Icons.replay_10_rounded,
@@ -892,7 +834,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                   IconButton(
                     onPressed: () {
                       final newPos = position + const Duration(seconds: 10);
-                      player.seek(newPos > duration ? duration : newPos);
+                      unawaited(
+                          player.seek(newPos > duration ? duration : newPos));
                       _showTrailerControlsBriefly();
                     },
                     icon: const Icon(Icons.forward_10_rounded,
@@ -929,7 +872,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                         value: progress,
                         onChanged: (v) {
                           final seekMs = (v * totalMs).round();
-                          player.seek(Duration(milliseconds: seekMs));
+                          unawaited(
+                              player.seek(Duration(milliseconds: seekMs)));
                           _showTrailerControlsBriefly();
                         },
                       ),
@@ -999,12 +943,12 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         title: title,
       ));
       final pathToDelete = posterFile.path;
-      Future.delayed(const Duration(seconds: 60), () {
+      unawaited(Future<void>.delayed(const Duration(seconds: 60), () {
         try {
           final f = File(pathToDelete);
           if (f.existsSync()) f.deleteSync();
         } catch (_) {}
-      });
+      }));
     } else {
       SharePlus.instance.share(ShareParams(
         text: text,
@@ -1015,6 +959,14 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final detailsAsync = ref.watch(mediaDetailsProvider(_mediaDetailsParams));
+    _scheduleBindDetailsState(detailsAsync);
+
+    ref.listen<AsyncValue<MediaDetailsState>>(
+      mediaDetailsProvider(_mediaDetailsParams),
+      (_, next) => _bindDetailsState(next),
+    );
+
     return PopScope(
       canPop: !_trailerPreviewFullscreen,
       onPopInvokedWithResult: (didPop, _) {
@@ -1391,132 +1343,138 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                 ),
               ),
             ),
-            if (_trailerPreviewController != null || _trailerPreviewLoading)
-              Align(
-                alignment: Alignment.topCenter,
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    0,
-                    MediaQuery.of(context).padding.top,
-                    0,
-                    0,
+            Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  0,
+                  MediaQuery.of(context).padding.top,
+                  0,
+                  0,
+                ),
+                child: Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.24),
+                    borderRadius: BorderRadius.zero,
                   ),
-                  child: Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.24),
-                      borderRadius: BorderRadius.zero,
-                    ),
-                    clipBehavior: Clip.hardEdge,
-                    child: AspectRatio(
-                      aspectRatio: 16 / 9,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onDoubleTap: _toggleTrailerPreviewPlayPause,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            CachedNetworkImage(
-                              imageUrl: _trailerThumbUrl(),
-                              fit: (_details?.ogBackdropUrl ?? '').isNotEmpty ||
-                                      ((_item.backdropUrl ?? '').isNotEmpty)
-                                  ? BoxFit.cover
-                                  : BoxFit.contain,
-                              fadeInDuration: const Duration(milliseconds: 180),
-                              errorWidget: (_, __, ___) => Container(
-                                color: Colors.black,
+                  clipBehavior: Clip.hardEdge,
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onDoubleTap: _trailerPreviewController != null
+                          ? _toggleTrailerPreviewPlayPause
+                          : null,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          CachedNetworkImage(
+                            imageUrl: _trailerThumbUrl(),
+                            fit: (_details?.ogBackdropUrl ?? '').isNotEmpty ||
+                                    ((_item.backdropUrl ?? '').isNotEmpty)
+                                ? BoxFit.cover
+                                : BoxFit.contain,
+                            fadeInDuration: const Duration(milliseconds: 180),
+                            placeholder: (_, __) =>
+                                const AppBlurHashPlaceholder(
+                              backgroundColor: Colors.black,
+                            ),
+                            errorWidget: (_, __, ___) =>
+                                const AppBlurHashPlaceholder(
+                              backgroundColor: Colors.black,
+                            ),
+                          ),
+                          if (_trailerPreviewController != null)
+                            AnimatedOpacity(
+                              duration: const Duration(milliseconds: 260),
+                              opacity: _trailerPreviewReady ? 1.0 : 0.0,
+                              child: Video(
+                                controller: _trailerPreviewController!,
+                                fit: BoxFit.cover,
+                                controls: (state) => const SizedBox.shrink(),
                               ),
                             ),
-                            if (_trailerPreviewController != null)
-                              AnimatedOpacity(
-                                duration: const Duration(milliseconds: 260),
-                                opacity: _trailerPreviewReady ? 1.0 : 0.0,
-                                child: Video(
-                                  controller: _trailerPreviewController!,
-                                  fit: BoxFit.cover,
-                                  controls: (state) => const SizedBox.shrink(),
-                                ),
-                              ),
-                            Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    Colors.black.withValues(alpha: 0.12),
-                                    Colors.black.withValues(alpha: 0.42),
-                                  ],
-                                ),
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.black.withValues(alpha: 0.12),
+                                  Colors.black.withValues(alpha: 0.42),
+                                ],
                               ),
                             ),
-                            if (_trailerPreviewController != null)
-                              Positioned.fill(
-                                child: _buildTrailerReplayOverlay(),
-                              ),
-                            if (_trailerPreviewReady)
-                              Positioned(
-                                top: 10,
-                                right: 10,
-                                child: Material(
-                                  color: Colors.black.withValues(alpha: 0.42),
-                                  borderRadius: BorderRadius.circular(999),
-                                  child: InkWell(
-                                    onTap: _trailerPreviewController != null
-                                        ? _toggleTrailerPreviewMute
-                                        : null,
-                                    borderRadius: BorderRadius.circular(999),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(7),
-                                      child: Icon(
-                                        _trailerPreviewMuted
-                                            ? Icons.volume_off_rounded
-                                            : Icons.volume_up_rounded,
-                                        color:
-                                            Colors.white.withValues(alpha: 0.9),
-                                        size: 18,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            if (_trailerPreviewReady)
-                              Positioned(
-                                bottom: 12,
-                                right: 12,
-                                child: Material(
-                                  color: Colors.black.withValues(alpha: 0.42),
-                                  borderRadius: BorderRadius.circular(999),
-                                  child: InkWell(
-                                    onTap: _toggleTrailerPreviewFullscreen,
-                                    borderRadius: BorderRadius.circular(999),
-                                    child: const Padding(
-                                      padding: EdgeInsets.all(7),
-                                      child: Icon(
-                                        Icons.fullscreen,
-                                        color: Colors.white,
-                                        size: 18,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
+                          ),
+                          if (_trailerPreviewController != null)
+                            Positioned.fill(
+                              child: _buildTrailerReplayOverlay(),
+                            ),
+                          if (_trailerPreviewReady)
                             Positioned(
-                              left: 4,
-                              right: 4,
-                              bottom: 4,
-                              child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 10),
-                                child: _buildTrailerProgressBar(),
+                              top: 10,
+                              right: 10,
+                              child: Material(
+                                color: Colors.black.withValues(alpha: 0.42),
+                                borderRadius: BorderRadius.circular(999),
+                                child: InkWell(
+                                  onTap: _trailerPreviewController != null
+                                      ? _toggleTrailerPreviewMute
+                                      : null,
+                                  borderRadius: BorderRadius.circular(999),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(7),
+                                    child: Icon(
+                                      _trailerPreviewMuted
+                                          ? Icons.volume_off_rounded
+                                          : Icons.volume_up_rounded,
+                                      color:
+                                          Colors.white.withValues(alpha: 0.9),
+                                      size: 18,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                          ],
-                        ),
+                          if (_trailerPreviewReady)
+                            Positioned(
+                              bottom: 12,
+                              right: 12,
+                              child: Material(
+                                color: Colors.black.withValues(alpha: 0.42),
+                                borderRadius: BorderRadius.circular(999),
+                                child: InkWell(
+                                  onTap: _toggleTrailerPreviewFullscreen,
+                                  borderRadius: BorderRadius.circular(999),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(7),
+                                    child: Icon(
+                                      Icons.fullscreen,
+                                      color: Colors.white,
+                                      size: 18,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          Positioned(
+                            left: 4,
+                            right: 4,
+                            bottom: 4,
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 10),
+                              child: _buildTrailerProgressBar(),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 ),
-              )
+              ),
+            )
           ],
         ),
       ),
@@ -1552,7 +1510,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                           height: 1.3,
                         ),
                       )
-                    : SizedBox.shrink(),
+                    : const SizedBox.shrink(),
           ),
         ),
         // Rating and Year
@@ -1609,9 +1567,9 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
             letterSpacing: -1.5,
             height: 1.0,
             shadows: [
-              Shadow(
+              const Shadow(
                 color: Colors.black54,
-                offset: const Offset(0, 4),
+                offset: Offset(0, 4),
                 blurRadius: 10,
               ),
             ],
@@ -1679,14 +1637,14 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                 const SizedBox(width: 4),
                 InkWell(
                   onTap: () {
-                    Navigator.push(
+                    unawaited(Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => TorrentSearchScreen(
                           initialQuery: _getSearchQuery(),
                         ),
                       ),
-                    );
+                    ));
                   },
                   borderRadius: BorderRadius.circular(8),
                   child: Padding(
@@ -1695,7 +1653,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        HugeIcon(
+                        const HugeIcon(
                           icon: HugeIcons.strokeRoundedSearch02,
                           color: AppTheme.primaryColor,
                           size: 20,
@@ -1722,7 +1680,6 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         const SizedBox(height: 16),
         Builder(
           builder: (context) {
-            final provider = context.watch<AppProvider>();
             bool isResumable = false;
             String playLabel = 'PLAY';
             String? topLabel;
@@ -1730,11 +1687,13 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
             int e = 1;
 
             if (_isTvShow) {
-              final next = _findNextEpisode(provider);
+              final next = _findNextEpisode();
               s = next['season']!;
               e = next['episode']!;
               final key = 'pos_tmdb_${widget.item.id}_s${s}_e$e';
-              final savedPos = provider.getSetting<int>(key) ?? 0;
+              final savedPos =
+                  ref.read(appNotifierProvider.notifier).getSetting<int>(key) ??
+                      0;
 
               isResumable = savedPos > 0;
               playLabel = 'S$s · E$e';
@@ -1743,7 +1702,9 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
               }
             } else {
               final key = 'pos_tmdb_${widget.item.id}';
-              final savedPos = provider.getSetting<int>(key) ?? 0;
+              final savedPos =
+                  ref.read(appNotifierProvider.notifier).getSetting<int>(key) ??
+                      0;
               final runtimeMin = _details?.runtime ?? 120;
               final totalMs = runtimeMin * 60 * 1000;
               isResumable = savedPos > 0 && savedPos < (totalMs * 0.95);
@@ -1789,7 +1750,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                                 height: 20,
                                 child: CircularProgressIndicator(
                                     strokeWidth: 2, color: Colors.black))
-                            : HugeIcon(
+                            : const HugeIcon(
                                 icon: HugeIcons.strokeRoundedPlayCircle02,
                                 color: Colors.black,
                                 size: 24.0,
@@ -1831,23 +1792,29 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                       },
                     ),
                     const SizedBox(width: 8),
-                    Builder(
-                      builder: (context) {
-                        final provider = context.watch<AppProvider>();
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final provider = ref.watch(appNotifierProvider);
                         final isWatchlisted = provider.isInWatchlist(_item.id);
 
                         return MediaQuickActionButton(
+                          key: ValueKey('watchlist_${_item.id}_$isWatchlisted'),
                           tooltip: isWatchlisted
                               ? 'Remove from Watchlist'
                               : 'Save to Watchlist',
                           isSelected: isWatchlisted,
+                          highlightBackground: false,
+                          iconColor: isWatchlisted
+                              ? const Color(0xFFFACC15)
+                              : Colors.white.withValues(alpha: 0.9),
                           hugeIcon: isWatchlisted
                               ? HugeIcons.strokeRoundedBookmark03
                               : HugeIcons.strokeRoundedBookmark02,
-                          onTap: () {
+                          onTap: () async {
                             HapticFeedback.mediumImpact();
-                            toggleWatchlistWithFeedback(
+                            await toggleWatchlistWithFeedback(
                               context,
+                              ref,
                               provider,
                               _item,
                               wasInWatchlist: isWatchlisted,
@@ -1884,6 +1851,11 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
       return const SizedBox.shrink();
     }
 
+    final seasonEpisodesAsync = _watchSeasonEpisodes();
+    final episodes =
+        seasonEpisodesAsync.asData?.value ?? const <RiveStreamEpisode>[];
+    final loadingEpisodes = seasonEpisodesAsync.isLoading;
+
     final seasonsCount = _details!.numberOfSeasons!;
     final items = List.generate(seasonsCount, (i) => i + 1);
 
@@ -1915,7 +1887,6 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                       _selectedSeason = val;
                       _selectedEpisode = null;
                     });
-                    _fetchSeasonEpisodes(val);
                   }
                 },
                 headerBuilder: (context, selectedItem, enabled) {
@@ -1940,14 +1911,14 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                     ),
                   );
                 },
-                decoration: CustomDropdownDecoration(
+                decoration: const CustomDropdownDecoration(
                   closedFillColor: Colors.transparent,
                   expandedFillColor: AppTheme.backgroundColor,
                   closedSuffixIcon: Icon(Icons.keyboard_arrow_down_rounded,
                       color: AppTheme.primaryColor, size: 20),
                   expandedSuffixIcon: Icon(Icons.keyboard_arrow_up_rounded,
                       color: AppTheme.primaryColor, size: 20),
-                  listItemDecoration: const ListItemDecoration(
+                  listItemDecoration: ListItemDecoration(
                     selectedColor: Colors.transparent,
                     highlightColor: Colors.transparent,
                   ),
@@ -1956,61 +1927,19 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
             ),
             Builder(
               builder: (context) {
-                final provider = context.watch<AppProvider>();
-                final defProv =
-                    provider.getSetting<String>('default_tv_provider');
-                final next = _findNextEpisode(provider);
-                final key = _createVideoSourceKey(
-                  seasonNumber: next['season'],
-                  episodeNumber: next['episode'],
-                );
-                final asyncSources =
-                    key != null ? ref.watch(videoSourcesProvider(key)) : null;
-
-                final availableProviders = <String>[];
-                bool isLoadingSources = false;
-                bool hasSourceError = false;
-
-                if (asyncSources == null) {
-                  hasSourceError = true;
-                } else {
-                  asyncSources.when(
-                    data: (data) {
-                      for (final providerKey in _providerOrder) {
-                        final result = data[providerKey];
-                        if (result == null) continue;
-                        final hasSources = result.sources.isNotEmpty;
-                        final isTg = result.isTg;
-                        if (hasSources || isTg) {
-                          availableProviders.add(
-                              _providerDisplayNames[providerKey] ??
-                                  providerKey);
-                        }
-                      }
-                      return null;
-                    },
-                    loading: () {
-                      isLoadingSources = true;
-                      return null;
-                    },
-                    error: (_, __) {
-                      hasSourceError = true;
-                      return null;
-                    },
-                  );
-                }
-
-                final isDefProvAvailable =
-                    defProv != null && availableProviders.contains(defProv);
-                final displayProvider =
-                    isDefProvAvailable ? defProv : 'Provider';
+                final defProv = ref
+                    .read(appNotifierProvider.notifier)
+                    .getSetting<String>('default_tv_provider');
+                final displayProvider = (defProv != null && defProv.isNotEmpty)
+                    ? defProv
+                    : 'Provider';
 
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     PopupMenuButton<String>(
-                      initialValue: isDefProvAvailable ? defProv : null,
+                      initialValue: defProv,
                       tooltip: 'Select Default Provider',
                       color: AppTheme.cardColor,
                       shape: RoundedRectangleBorder(
@@ -2020,8 +1949,12 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                         ),
                       ),
                       onSelected: (val) {
-                        provider.saveSetting(
-                            'default_tv_provider', val == 'None' ? null : val);
+                        unawaited(
+                            ref.read(appNotifierProvider.notifier).saveSetting(
+                                  'default_tv_provider',
+                                  val == 'None' ? null : val,
+                                  notify: true,
+                                ));
                       },
                       itemBuilder: (context) => [
                         const PopupMenuItem(
@@ -2036,55 +1969,26 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                             ],
                           ),
                         ),
-                        if (isLoadingSources)
-                          const PopupMenuItem(
-                            enabled: false,
-                            child: Row(
-                              children: [
-                                SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white70,
-                                  ),
-                                ),
-                                SizedBox(width: 8),
-                                Text('Checking sources...',
-                                    style: TextStyle(color: Colors.white70)),
-                              ],
-                            ),
-                          ),
-                        if (!isLoadingSources &&
-                            availableProviders.isEmpty &&
-                            !hasSourceError)
-                          const PopupMenuItem(
-                            enabled: false,
-                            child: Row(
-                              children: [
-                                Icon(Icons.info_outline_rounded,
-                                    size: 16, color: Colors.white70),
-                                SizedBox(width: 8),
-                                Text('No sources found',
-                                    style: TextStyle(color: Colors.white70)),
-                              ],
-                            ),
-                          ),
                         const PopupMenuDivider(height: 4),
-                        ...availableProviders.map(
-                          (name) => PopupMenuItem(
-                            value: name,
-                            child: Row(
-                              children: [
-                                const HugeIcon(
-                                    icon: HugeIcons.strokeRoundedPlayCircle02),
-                                const SizedBox(width: 8),
-                                Text(name,
-                                    style:
-                                        const TextStyle(color: Colors.white)),
-                              ],
-                            ),
-                          ),
+                        ..._providerOrder.map(
+                          (providerKey) {
+                            final name = _providerDisplayNames[providerKey] ??
+                                providerKey;
+                            return PopupMenuItem(
+                              value: name,
+                              child: Row(
+                                children: [
+                                  const HugeIcon(
+                                      icon:
+                                          HugeIcons.strokeRoundedPlayCircle02),
+                                  const SizedBox(width: 8),
+                                  Text(name,
+                                      style:
+                                          const TextStyle(color: Colors.white)),
+                                ],
+                              ),
+                            );
+                          },
                         ),
                       ],
                       child: Container(
@@ -2103,7 +2007,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                           children: [
                             Container(
                               padding: const EdgeInsets.all(4),
-                              child: HugeIcon(
+                              child: const HugeIcon(
                                 icon: HugeIcons.strokeRoundedPlayCircle02,
                                 size: 18,
                                 color: AppTheme.primaryColor,
@@ -2134,22 +2038,24 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
             ),
           ],
         ),
-        if (!_loadingEpisodes && _episodes.isNotEmpty)
+        if (!loadingEpisodes && episodes.isNotEmpty)
           Builder(
             builder: (context) {
-              final provider = context.watch<AppProvider>();
               int watchedCount = 0;
 
-              for (final episode in _episodes) {
+              for (final episode in episodes) {
                 final key =
                     'pos_tmdb_${widget.item.id}_s${episode.seasonNumber}_e${episode.episodeNumber}';
-                final savedPos = provider.getSetting<int>(key) ?? 0;
+                final savedPos = ref
+                        .read(appNotifierProvider.notifier)
+                        .getSetting<int>(key) ??
+                    0;
                 final runtimeMin = _details?.runtime ?? 45;
                 final totalMs = runtimeMin * 60 * 1000;
                 final progress = (savedPos / totalMs).clamp(0.0, 1.0);
                 if (progress > 0.4) watchedCount++;
               }
-              final totalEpisodes = _episodes.length;
+              final totalEpisodes = episodes.length;
 
               return Padding(
                 padding: const EdgeInsets.only(left: 8, bottom: 0, top: 16),
@@ -2164,7 +2070,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
               );
             },
           ),
-        if (_loadingEpisodes)
+        if (loadingEpisodes)
           Shimmer.fromColors(
             baseColor: Colors.white.withValues(alpha: 0.05),
             highlightColor: Colors.white.withValues(alpha: 0.1),
@@ -2216,14 +2122,15 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
             shrinkWrap: true,
             padding: const EdgeInsets.only(top: 4, bottom: 24),
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: _episodes.length,
+            itemCount: episodes.length,
             separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
-              final episode = _episodes[index];
-              final provider = context.watch<AppProvider>();
+              final episode = episodes[index];
               final key =
                   'pos_tmdb_${widget.item.id}_s${episode.seasonNumber}_e${episode.episodeNumber}';
-              final savedPos = provider.getSetting<int>(key) ?? 0;
+              final savedPos =
+                  ref.read(appNotifierProvider.notifier).getSetting<int>(key) ??
+                      0;
               final runtimeMin = _details?.runtime ?? 45;
               final totalMs = runtimeMin * 60 * 1000;
               final progress = (savedPos / totalMs).clamp(0.0, 1.0);
@@ -2240,8 +2147,9 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                   child: InkWell(
                     onTap: () {
                       HapticFeedback.lightImpact();
-                      final defProv =
-                          provider.getSetting<String>('default_tv_provider');
+                      final defProv = ref
+                          .read(appNotifierProvider.notifier)
+                          .getSetting<String>('default_tv_provider');
                       if (defProv != null &&
                           defProv.isNotEmpty &&
                           defProv != 'None') {
@@ -2284,13 +2192,16 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                                         ? CachedNetworkImage(
                                             imageUrl: episode.fullStillUrl,
                                             fit: BoxFit.cover,
-                                            placeholder: (_, __) => Container(
-                                              color: AppTheme.cardColor,
+                                            placeholder: (_, __) =>
+                                                const AppBlurHashPlaceholder(
+                                              backgroundColor:
+                                                  AppTheme.cardColor,
                                             ),
                                             errorWidget: (_, __, ___) =>
-                                                Container(
-                                              color: AppTheme.cardColor,
-                                              child: const Icon(Icons.movie,
+                                                const AppBlurHashPlaceholder(
+                                              backgroundColor:
+                                                  AppTheme.cardColor,
+                                              fallbackIcon: Icon(Icons.movie,
                                                   color: Colors.white24),
                                             ),
                                           )
@@ -2374,7 +2285,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                                       ),
                                       child: Text(
                                         'E${episode.episodeNumber}',
-                                        style: TextStyle(
+                                        style: const TextStyle(
                                           color: AppTheme.primaryColor,
                                           fontWeight: FontWeight.w700,
                                           fontSize: 10,
@@ -2383,8 +2294,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                                       ),
                                     ),
                                     if (progress > 0.9)
-                                      Padding(
-                                        padding: const EdgeInsets.only(left: 8),
+                                      const Padding(
+                                        padding: EdgeInsets.only(left: 8),
                                         child: HugeIcon(
                                           icon: HugeIcons
                                               .strokeRoundedCheckmarkSquare02,
@@ -2505,41 +2416,6 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
       return '$formattedDate ($relative)';
     } catch (e) {
       return dateStr;
-    }
-  }
-
-  Future<void> _fetchSeasonEpisodes(int season) async {
-    if (!mounted) return;
-
-    final riveService = RiveStreamService();
-    final tmdbId = int.tryParse(_item.id);
-    if (tmdbId == null) return;
-
-    // 1. Load from cache first
-    final cachedEpisodes =
-        await riveService.getCachedSeasonDetails(tmdbId, season);
-    if (cachedEpisodes.isNotEmpty && mounted) {
-      setState(() {
-        _episodes = cachedEpisodes;
-        _loadingEpisodes = false;
-      });
-    } else {
-      // Only show loading if we don't have any episodes yet (cache was empty)
-      if (_episodes.isEmpty) {
-        setState(() => _loadingEpisodes = true);
-      }
-    }
-
-    try {
-      final episodes = await riveService.getSeasonDetails(tmdbId, season);
-      if (mounted) {
-        setState(() {
-          _episodes = episodes;
-          _loadingEpisodes = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _loadingEpisodes = false);
     }
   }
 
@@ -2808,7 +2684,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.calendar_today_rounded,
+              const Icon(Icons.calendar_today_rounded,
                   size: 18, color: AppTheme.primaryColor),
               const SizedBox(width: 8),
               Text(
@@ -2867,7 +2743,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.attach_money_rounded, size: 18, color: Colors.green),
+              const Icon(Icons.attach_money_rounded,
+                  size: 18, color: Colors.green),
               const SizedBox(width: 8),
               Text(
                 'BUDGET',
@@ -2944,15 +2821,38 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
   }
 
   Widget _buildCast() {
-    return CastCarouselSection(
-      isLoading: _loadingCast,
-      cast: _cast,
-      onTapMember: _showCastModal,
+    final tmdbId = int.tryParse(_item.id);
+    if (tmdbId == null) {
+      return CastCarouselSection(
+        isLoading: _isLoading,
+        cast: const <CastMember>[],
+        onTapMember: _showCastModal,
+      );
+    }
+
+    final castAsync =
+        ref.watch(mediaCastProvider((tmdbId.toString(), !_isTvShow)));
+    return castAsync.when(
+      data: (cast) => CastCarouselSection(
+        isLoading: false,
+        cast: cast,
+        onTapMember: _showCastModal,
+      ),
+      loading: () => CastCarouselSection(
+        isLoading: true,
+        cast: const <CastMember>[],
+        onTapMember: _showCastModal,
+      ),
+      error: (_, __) => CastCarouselSection(
+        isLoading: false,
+        cast: const <CastMember>[],
+        onTapMember: _showCastModal,
+      ),
     );
   }
 
   void _showCastModal(CastMember member) {
-    Navigator.push(
+    unawaited(Navigator.push(
       context,
       PageRouteBuilder(
         opaque: false,
@@ -2975,20 +2875,29 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
           );
         },
       ),
-    );
+    ));
   }
 
   Widget _buildRecommendations() {
+    final tmdbId = int.tryParse(_item.id);
+    final recommendationsAsync = tmdbId == null
+        ? null
+        : ref.watch(
+            mediaRecommendationsProvider((tmdbId.toString(), !_isTvShow)));
+
     return RecommendationsCarouselSection(
-      isLoading: _loadingRecommendations,
-      recommendations: _recommendations,
+      isLoading: recommendationsAsync == null
+          ? _isLoading
+          : recommendationsAsync.isLoading,
+      recommendations: recommendationsAsync?.asData?.value.items ??
+          const <RiveStreamMedia>[],
       onTapRecommendation: (media) {
         HapticFeedback.lightImpact();
         final navId = (media.id == 0 && media.originalTitle != null)
             ? media.originalTitle!
             : media.id.toString();
 
-        Navigator.push(
+        unawaited(Navigator.push(
           context,
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 500),
@@ -3026,7 +2935,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
               );
             },
           ),
-        );
+        ));
       },
     );
   }
@@ -3039,7 +2948,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
   }
 
   void _showEpisodeDetails(RiveStreamEpisode episode) {
-    showModalBottomSheet(
+    unawaited(showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -3047,10 +2956,11 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             final bool isLoading = _loadingVideo;
-            final provider = provider_pkg.Provider.of<AppProvider>(context);
             final key =
                 'pos_tmdb_${widget.item.id}_s${episode.seasonNumber}_e${episode.episodeNumber}';
-            final savedPos = provider.getSetting<int>(key) ?? 0;
+            final savedPos =
+                ref.read(appNotifierProvider.notifier).getSetting<int>(key) ??
+                    0;
             final runtimeMin = _details?.runtime ?? 45;
             final totalMs = runtimeMin * 60 * 1000;
             final isResumable = savedPos > 0 && savedPos < (totalMs * 0.95);
@@ -3152,7 +3062,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                                   children: [
                                     Text(
                                       'S${episode.seasonNumber} • E${episode.episodeNumber}',
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         color: AppTheme.primaryColor,
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold,
@@ -3161,7 +3071,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                                     ),
                                     if (episode.voteAverage > 0) ...[
                                       const SizedBox(width: 8),
-                                      Icon(Icons.star_rounded,
+                                      const Icon(Icons.star_rounded,
                                           size: 14, color: Colors.amber),
                                       const SizedBox(width: 2),
                                       Text(
@@ -3304,7 +3214,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
           },
         );
       },
-    );
+    ));
   }
 
   void _showSourceSelector(
@@ -3318,7 +3228,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
       episodeNumber: episodeNumber,
     );
 
-    showModalBottomSheet(
+    unawaited(showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) {
@@ -3424,7 +3334,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
           },
         );
       },
-    );
+    ));
   }
 
   void _showDownloadSourceSelector({
@@ -3438,7 +3348,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
       episodeNumber: episodeNumber,
     );
 
-    showModalBottomSheet(
+    unawaited(showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) {
@@ -3501,8 +3411,9 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
                         final isAvailable = result != null &&
                             (result.sources.isNotEmpty || result.isTg);
 
-                        if (!isAvailable)
+                        if (!isAvailable) {
                           return _buildSourceOptionDisabled(displayName);
+                        }
 
                         if (providerKey == 'tg') {
                           return _buildDownloadOption(
@@ -3553,7 +3464,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
           },
         );
       },
-    );
+    ));
   }
 
   Widget _buildDownloadOption(String name, IconData icon, VoidCallback onTap) {
@@ -3636,9 +3547,8 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     };
 
     final cleanFilename = filename.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-    final downloadProvider =
-        provider_pkg.Provider.of<DownloadProvider>(context, listen: false);
-    downloadProvider.startDownload(
+    final downloadNotifier = ref.read(downloadNotifierProvider.notifier);
+    downloadNotifier.startDownload(
       url: source.url,
       filename: cleanFilename,
       headers: headers.isEmpty ? null : headers,
@@ -3676,7 +3586,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
       return;
     }
     if (!mounted) return;
-    showModalBottomSheet(
+    unawaited(showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isDismissible: true,
@@ -3691,7 +3601,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         mediaItem: widget.item,
         downloadMode: true,
       ),
-    );
+    ));
   }
 
   Widget _buildSourceSelectorContainer({required Widget child}) {
@@ -3731,7 +3641,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
       return;
     }
     if (!mounted) return;
-    showModalBottomSheet(
+    unawaited(showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isDismissible: true,
@@ -3747,7 +3657,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         mediaItem: widget.item,
         downloadMode: true,
       ),
-    );
+    ));
   }
 
   Future<void> _playTg({
@@ -3761,11 +3671,11 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         seasonNumber != null &&
         episodeNumber != null) {
       try {
-        final episodes = await RiveStreamService()
-            .getSeasonDetails(int.parse(_item.id), seasonNumber);
-        actualEpisode = episodes.firstWhere(
-            (ep) => ep.episodeNumber == episodeNumber,
-            orElse: () => episodes.first);
+        actualEpisode =
+            await _resolveEpisodeForPlayback(seasonNumber, episodeNumber);
+        if (actualEpisode == null) {
+          throw Exception('Episode not found');
+        }
       } catch (e) {
         if (mounted) {
           _showSnackBar('Error fetching episode: $e', isError: true);
@@ -3804,7 +3714,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
 
     if (!mounted) return;
 
-    showModalBottomSheet(
+    unawaited(showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isDismissible: true,
@@ -3820,7 +3730,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         tmdbId: int.tryParse(_item.id),
         mediaItem: widget.item,
       ),
-    );
+    ));
   }
 
   Widget _buildAllProvidersLoading() {
@@ -3904,11 +3814,11 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
         seasonNumber != null &&
         episodeNumber != null) {
       try {
-        final episodes = await RiveStreamService()
-            .getSeasonDetails(int.parse(_item.id), seasonNumber);
-        actualEpisode = episodes.firstWhere(
-            (ep) => ep.episodeNumber == episodeNumber,
-            orElse: () => episodes.first);
+        actualEpisode =
+            await _resolveEpisodeForPlayback(seasonNumber, episodeNumber);
+        if (actualEpisode == null) {
+          throw Exception('Episode not found');
+        }
       } catch (e) {
         if (mounted) {
           _showSnackBar('Error fetching episode: $e', isError: true);
@@ -4043,7 +3953,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
       Navigator.pop(context);
     }
 
-    SystemChrome.setPreferredOrientations([
+    await SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
@@ -4085,7 +3995,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
       ),
     );
 
-    SystemChrome.setPreferredOrientations([
+    await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
     ]);
@@ -4156,44 +4066,10 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     return stars;
   }
 
-  Map<String, int> _findNextEpisode(AppProvider provider) {
+  Map<String, int> _findNextEpisode() {
     if (!_isTvShow) return {'season': 1, 'episode': 1};
-    final settings = provider.getAllSettings();
-    final prefix = 'pos_tmdb_${widget.item.id}_s';
-
-    final keys = settings.keys.where((k) => k.startsWith(prefix)).toList();
-    if (keys.isEmpty) return {'season': 1, 'episode': 1};
-
-    final regExp = RegExp(r'_s(\d+)_e(\d+)');
-    final List<Map<String, dynamic>> played = [];
-    for (var k in keys) {
-      final match = regExp.firstMatch(k);
-      if (match != null) {
-        played.add({
-          's': int.parse(match.group(1)!),
-          'e': int.parse(match.group(2)!),
-          'pos': settings[k] as int,
-        });
-      }
-    }
-
-    played.sort((a, b) {
-      if (a['s'] != b['s']) return (a['s'] as int).compareTo(b['s'] as int);
-      return (a['e'] as int).compareTo(b['e'] as int);
-    });
-
-    final last = played.last;
-    final int s = last['s'] as int;
-    final int e = last['e'] as int;
-    final int pos = last['pos'] as int;
-
-    final runtimeMin = _details?.runtime ?? 45;
-    final totalMs = runtimeMin * 60 * 1000;
-    if (pos > (totalMs * 0.9)) {
-      return {'season': s, 'episode': e + 1};
-    }
-
-    return {'season': s, 'episode': e};
+    // TODO: Implement proper next episode detection from settings
+    return {'season': 1, 'episode': 1};
   }
 
   Future<void> _handlePlayAction(int s, int e) async {
@@ -4215,7 +4091,7 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
     if (_item.genres == null || _item.genres!.isEmpty) return;
     final genres = _item.genres!.split(',').map((g) => g.trim()).toList();
 
-    showDialog(
+    unawaited(showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.8),
       builder: (context) => BackdropFilter(
@@ -4295,11 +4171,11 @@ class _MediaInfoScreenState extends ConsumerState<MediaInfoScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 
-class _TgFlowSheet extends StatefulWidget {
+class _TgFlowSheet extends ConsumerStatefulWidget {
   final String imdbId;
   final bool isTv;
   final int? season;
@@ -4321,10 +4197,10 @@ class _TgFlowSheet extends StatefulWidget {
   });
 
   @override
-  State<_TgFlowSheet> createState() => _TgFlowSheetState();
+  ConsumerState<_TgFlowSheet> createState() => _TgFlowSheetState();
 }
 
-class _TgFlowSheetState extends State<_TgFlowSheet> {
+class _TgFlowSheetState extends ConsumerState<_TgFlowSheet> {
   String _statusText = 'Checking availability...';
   String? _error;
   List<TgStatusQuality> _qualities = [];
@@ -4525,7 +4401,7 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
 
     Navigator.pop(context);
 
-    SystemChrome.setPreferredOrientations([
+    await SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
@@ -4591,7 +4467,7 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
         },
       ),
     );
-    SystemChrome.setPreferredOrientations([
+    await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
     ]);
@@ -4620,7 +4496,7 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
 
     Navigator.pop(context);
 
-    SystemChrome.setPreferredOrientations([
+    await SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
@@ -4672,7 +4548,7 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
       ),
     );
 
-    SystemChrome.setPreferredOrientations([
+    await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
     ]);
@@ -5084,9 +4960,8 @@ class _TgFlowSheetState extends State<_TgFlowSheet> {
       required String filename,
       int? totalSize,
       Map<String, String>? headers}) {
-    final downloadProvider =
-        provider_pkg.Provider.of<DownloadProvider>(context, listen: false);
-    downloadProvider.startDownload(
+    final downloadNotifier = ref.read(downloadNotifierProvider.notifier);
+    downloadNotifier.startDownload(
       url: url,
       filename: filename.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_'),
       totalSize: totalSize,
@@ -5333,7 +5208,7 @@ class _CastDetailViewState extends State<_CastDetailView> {
                 children: [
                   // ── Full-bleed poster hero ──
                   GestureDetector(
-                    onTap: () => Navigator.push(
+                    onTap: () => unawaited(Navigator.push(
                       context,
                       PageRouteBuilder(
                         transitionDuration: const Duration(milliseconds: 500),
@@ -5346,7 +5221,7 @@ class _CastDetailViewState extends State<_CastDetailView> {
                                 secondaryAnimation, child) =>
                             FadeTransition(opacity: animation, child: child),
                       ),
-                    ),
+                    )),
                     child: Stack(
                       children: [
                         // Poster
@@ -5357,28 +5232,21 @@ class _CastDetailViewState extends State<_CastDetailView> {
                                 fit: BoxFit.cover,
                                 width: double.infinity,
                                 height: 300,
-                                placeholder: (_, __) => Container(
-                                  height: 300,
-                                  color: AppTheme.elevatedColor,
-                                  child: const Center(
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation(
-                                          AppTheme.primaryColor),
-                                    ),
-                                  ),
+                                placeholder: (_, __) =>
+                                    const AppBlurHashPlaceholder(
+                                  backgroundColor: AppTheme.elevatedColor,
                                 ),
-                                errorWidget: (_, __, ___) => Container(
-                                  height: 300,
-                                  color: AppTheme.elevatedColor,
-                                  child: Icon(Icons.person,
+                                errorWidget: (_, __, ___) =>
+                                    const AppBlurHashPlaceholder(
+                                  backgroundColor: AppTheme.elevatedColor,
+                                  fallbackIcon: Icon(Icons.person,
                                       color: AppTheme.textMuted, size: 64),
                                 ),
                               )
                             : Container(
                                 height: 300,
                                 color: AppTheme.elevatedColor,
-                                child: Icon(Icons.person,
+                                child: const Icon(Icons.person,
                                     color: AppTheme.textMuted, size: 64),
                               ),
                         // Deep gradient from bottom
@@ -5532,7 +5400,7 @@ class _CastDetailViewState extends State<_CastDetailView> {
                                           backdropUrl: item.fullBackdropUrl,
                                         );
                                         Navigator.pop(context);
-                                        Navigator.push(
+                                        unawaited(Navigator.push(
                                           context,
                                           PageRouteBuilder(
                                             transitionDuration: const Duration(
@@ -5548,7 +5416,7 @@ class _CastDetailViewState extends State<_CastDetailView> {
                                                     opacity: animation,
                                                     child: child),
                                           ),
-                                        );
+                                        ));
                                       },
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(
@@ -5780,39 +5648,42 @@ class _EpisodeCountdownTextState extends State<_EpisodeCountdownText> {
   }
 }
 
-class _NetflixLikeRatingButton extends StatefulWidget {
+class _NetflixLikeRatingButton extends ConsumerStatefulWidget {
   final String mediaId;
 
   const _NetflixLikeRatingButton({required this.mediaId});
 
   @override
-  State<_NetflixLikeRatingButton> createState() =>
+  ConsumerState<_NetflixLikeRatingButton> createState() =>
       _NetflixLikeRatingButtonState();
 }
 
-class _NetflixLikeRatingButtonState extends State<_NetflixLikeRatingButton> {
+class _NetflixLikeRatingButtonState
+    extends ConsumerState<_NetflixLikeRatingButton> {
   void _showRatingMenu(BuildContext context) {
-    final provider = context.read<AppProvider>();
+    final provider = ref.read(appNotifierProvider);
 
-    showModalBottomSheet(
+    unawaited(showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) => _RatingOptionsPopup(
-        currentRating: provider.getRating(widget.mediaId),
+        currentRating: provider.ratings[widget.mediaId] ?? 0,
         onSelected: (rating, shouldClose) async {
-          await provider.setRating(widget.mediaId, rating);
+          await ref
+              .read(appNotifierProvider.notifier)
+              .setRating(widget.mediaId, rating);
           if (shouldClose && context.mounted) {
             Navigator.pop(context);
           }
         },
       ),
-    );
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<AppProvider>();
-    final rating = provider.getRating(widget.mediaId);
+    final provider = ref.watch(appNotifierProvider);
+    final rating = provider.ratings[widget.mediaId];
 
     Color bgColor = Colors.white.withValues(alpha: 0.05);
     Color iconColor = Colors.white70;

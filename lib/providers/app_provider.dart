@@ -1,59 +1,122 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../services/session_storage.dart';
 import '../theme/app_theme.dart';
-import 'package:flutter/material.dart';
 
-/// App Provider - Main state management for the app
-class AppProvider extends ChangeNotifier {
-  final StorageService _storageService;
-  final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
-  AllDebridService? _allDebridService;
-  bool _isInitialized = false;
-  bool _isLoading = false;
-  String? _error;
-  User? _user;
-  HostsResponse? _hosts;
-  List<ImdbSearchResult> _watchlist = [];
-  Map<String, int> _ratings = {};
+/// App State - Immutable state holder
+class AppState {
+  final bool isInitialized;
+  final bool isLoading;
+  final String? error;
+  final User? user;
+  final HostsResponse? hosts;
+  final List<ImdbSearchResult> watchlist;
+  final Map<String, int> ratings;
+  final bool isDarkMode;
+  final Color primaryColor;
+  final AllDebridService? allDebridService;
+  final String? apiKey;
+  final RouteObserver<PageRoute> routeObserver;
+
+  const AppState({
+    this.isInitialized = false,
+    this.isLoading = false,
+    this.error,
+    this.user,
+    this.hosts,
+    this.watchlist = const [],
+    this.ratings = const {},
+    this.isDarkMode = true,
+    this.primaryColor = AppTheme.primaryColor,
+    this.allDebridService,
+    this.apiKey,
+    required this.routeObserver,
+  });
+
+  bool get hasApiKey => apiKey != null && apiKey!.isNotEmpty;
+
+  bool isInWatchlist(String id) {
+    return watchlist.any((item) => item.id == id);
+  }
+
+  AppState copyWith({
+    bool? isInitialized,
+    bool? isLoading,
+    String? error,
+    User? user,
+    HostsResponse? hosts,
+    List<ImdbSearchResult>? watchlist,
+    Map<String, int>? ratings,
+    bool? isDarkMode,
+    Color? primaryColor,
+    AllDebridService? allDebridService,
+    String? apiKey,
+  }) {
+    return AppState(
+      isInitialized: isInitialized ?? this.isInitialized,
+      isLoading: isLoading ?? this.isLoading,
+      error: error ?? this.error,
+      user: user ?? this.user,
+      hosts: hosts ?? this.hosts,
+      watchlist: watchlist ?? this.watchlist,
+      ratings: ratings ?? this.ratings,
+      isDarkMode: isDarkMode ?? this.isDarkMode,
+      primaryColor: primaryColor ?? this.primaryColor,
+      allDebridService: allDebridService ?? this.allDebridService,
+      apiKey: apiKey ?? this.apiKey,
+      routeObserver: routeObserver,
+    );
+  }
+}
+
+/// App Notifier - State management for the app
+class AppNotifier extends Notifier<AppState> {
+  late final StorageService _storageService;
   Timer? _watchlistDebounce;
 
-  bool _isDarkMode = true;
-  Color _primaryColor = AppTheme.primaryColor;
+  @override
+  AppState build() {
+    // Get storage service from ref
+    _storageService = ref.watch(storageServiceProvider);
 
-  AppProvider({required StorageService storageService})
-      : _storageService = storageService;
+    // Set up dispose
+    ref.onDispose(() {
+      _watchlistDebounce?.cancel();
+    });
 
-  // Getters
-  bool get isInitialized => _isInitialized;
-  bool get isLoading => _isLoading;
-  String? get error => _error;
-  User? get user => _user;
-  HostsResponse? get hosts => _hosts;
-  bool get hasApiKey => _storageService.hasApiKey();
-  String? get apiKey => _storageService.getApiKey();
-  AllDebridService? get allDebridService => _allDebridService;
-  Color get primaryColor => _primaryColor;
-  bool get isDarkMode => _isDarkMode;
-  List<ImdbSearchResult> get watchlist => _watchlist;
+    final routeObserver = RouteObserver<PageRoute>();
+    final apiKey = _storageService.getApiKey();
 
-  Future<void> saveSetting(String key, dynamic value) async {
+    return AppState(
+      routeObserver: routeObserver,
+      apiKey: apiKey,
+    );
+  }
+
+  RouteObserver<PageRoute> get routeObserver => state.routeObserver;
+
+  Future<void> saveSetting(String key, dynamic value,
+      {bool notify = false}) async {
     await _storageService.saveSetting(key, value);
-    notifyListeners();
+    if (notify) {
+      // Trigger state rebuild by creating new state reference
+      state = state;
+    }
   }
 
   Future<void> setPrimaryColor(Color color) async {
-    _primaryColor = color;
-    await _storageService.saveSetting('primary_color', color.value);
-    notifyListeners();
+    await _storageService.saveSetting('primary_color', color.toARGB32());
+    state = state.copyWith(primaryColor: color);
   }
 
   Future<void> toggleThemeMode() async {
-    _isDarkMode = !_isDarkMode;
-    await _storageService.saveSetting('is_dark_mode', _isDarkMode);
-    notifyListeners();
+    final newDarkMode = !state.isDarkMode;
+    await _storageService.saveSetting('is_dark_mode', newDarkMode);
+    state = state.copyWith(isDarkMode: newDarkMode);
   }
 
   T? getSetting<T>(String key, [T? defaultValue]) =>
@@ -62,81 +125,85 @@ class AppProvider extends ChangeNotifier {
   Map<String, dynamic> getAllSettings() => _storageService.getSettings();
 
   bool isInWatchlist(String id) {
-    return _watchlist.any((item) => item.id == id);
+    return state.watchlist.any((item) => item.id == id);
   }
 
   Future<void> toggleWatchlist(ImdbSearchResult item) async {
-    final index = _watchlist.indexWhere((i) => i.id == item.id);
+    final watchlist = List<ImdbSearchResult>.from(state.watchlist);
+    final index = watchlist.indexWhere((i) => i.id == item.id);
     if (index != -1) {
-      _watchlist.removeAt(index);
+      watchlist.removeAt(index);
     } else {
-      _watchlist.insert(0, item);
+      watchlist.insert(0, item);
     }
 
     final watchlistData =
-        _watchlist.map((e) => jsonEncode(e.toJson())).toList();
+        watchlist.map((e) => jsonEncode(e.toJson())).toList();
     await _storageService.saveSetting('watchlist', watchlistData);
-    notifyListeners();
+    state = state.copyWith(watchlist: watchlist);
   }
 
   Future<void> reorderWatchlist(int oldIndex, int newIndex) async {
+    final watchlist = List<ImdbSearchResult>.from(state.watchlist);
     if (oldIndex < newIndex) {
       newIndex -= 1;
     }
-    final item = _watchlist.removeAt(oldIndex);
-    _watchlist.insert(newIndex, item);
+    final item = watchlist.removeAt(oldIndex);
+    watchlist.insert(newIndex, item);
 
     final watchlistData =
-        _watchlist.map((e) => jsonEncode(e.toJson())).toList();
+        watchlist.map((e) => jsonEncode(e.toJson())).toList();
     await _storageService.saveSetting('watchlist', watchlistData);
-    notifyListeners();
+    state = state.copyWith(watchlist: watchlist);
   }
 
   Future<void> updateWatchlistPriority(String id, int priority) async {
-    final index = _watchlist.indexWhere((item) => item.id == id);
+    final watchlist = List<ImdbSearchResult>.from(state.watchlist);
+    final index = watchlist.indexWhere((item) => item.id == id);
     if (index != -1) {
-      _watchlist[index] = _watchlist[index].copyWith(priority: priority);
+      watchlist[index] = watchlist[index].copyWith(priority: priority);
 
       _watchlistDebounce?.cancel();
       _watchlistDebounce = Timer(const Duration(milliseconds: 600), () async {
         final watchlistData =
-            _watchlist.map((e) => jsonEncode(e.toJson())).toList();
+            watchlist.map((e) => jsonEncode(e.toJson())).toList();
         await _storageService.saveSetting('watchlist', watchlistData);
-        notifyListeners();
+        state = state.copyWith(watchlist: watchlist);
       });
     }
   }
 
   Future<void> clearWatchlist() async {
-    _watchlist.clear();
     await _storageService.saveSetting('watchlist', []);
-    notifyListeners();
+    state = state.copyWith(watchlist: []);
   }
 
   Future<void> initialize() async {
-    if (_isInitialized) return;
+    if (state.isInitialized) return;
 
-    _isLoading = true;
-    notifyListeners();
+    state = state.copyWith(isLoading: true);
 
     try {
       // Load Theme Color
+      var primaryColor = state.primaryColor;
       final colorValue = _storageService.getSetting<int>('primary_color');
       if (colorValue != null) {
-        _primaryColor = Color(colorValue);
+        primaryColor = Color(colorValue);
       }
 
       // Load Theme Mode
+      var isDarkMode = state.isDarkMode;
       final isDark = _storageService.getSetting<bool>('is_dark_mode');
       if (isDark != null) {
-        _isDarkMode = isDark;
+        isDarkMode = isDark;
       }
 
       // Load Watchlist
+      var watchlist = <ImdbSearchResult>[];
       final watchlistData =
           _storageService.getSetting<List<dynamic>>('watchlist');
       if (watchlistData != null) {
-        _watchlist = watchlistData
+        watchlist = watchlistData
             .map((e) {
               try {
                 return ImdbSearchResult.fromJson(jsonDecode(e.toString()));
@@ -148,14 +215,17 @@ class AppProvider extends ChangeNotifier {
             .toList();
       }
 
+      var allDebridService = state.allDebridService;
+      var user = state.user;
+      var hosts = state.hosts;
       final storedApiKey = _storageService.getApiKey();
       if (storedApiKey != null && storedApiKey.isNotEmpty) {
         // Skip network calls during init — set up service only, fetch in bg
-        await _initializeWithApiKey(storedApiKey, fetchRemote: false);
-        _fetchRemoteDataInBackground(); // fire-and-forget
+        allDebridService = AllDebridService(apiKey: storedApiKey);
+        unawaited(_fetchRemoteDataInBackground(allDebridService));
       }
 
-      SessionStorage.getSession().then((tgSession) async {
+      unawaited(SessionStorage.getSession().then((tgSession) async {
         if (tgSession != null && tgSession.isNotEmpty) {
           try {
             final chatId = await SessionStorage.getChatId();
@@ -167,119 +237,125 @@ class AppProvider extends ChangeNotifier {
             debugPrint('[AppProvider] Failed to auto-init native TG: $e');
           }
         }
-      }); // fire-and-forget
+      })); // fire-and-forget
 
       final ratingsData = _storageService.getSetting<String>('ratings') ?? '{}';
-      _ratings = Map<String, int>.from(jsonDecode(ratingsData));
+      final ratings = Map<String, int>.from(jsonDecode(ratingsData));
 
-      _isInitialized = true;
+      state = state.copyWith(
+        isInitialized: true,
+        isLoading: false,
+        primaryColor: primaryColor,
+        isDarkMode: isDarkMode,
+        watchlist: watchlist,
+        allDebridService: allDebridService,
+        ratings: ratings,
+        user: user,
+        hosts: hosts,
+      );
     } catch (e) {
-      _error = e.toString();
-    } finally {
-      _isLoading = false;
-      notifyListeners();
+      state = state.copyWith(error: e.toString(), isLoading: false);
     }
   }
 
   /// Initialize with API key
   Future<bool> initializeWithApiKey(String apiKey) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    state = state.copyWith(isLoading: true, error: null);
 
     try {
-      await _initializeWithApiKey(apiKey);
+      final service = AllDebridService(apiKey: apiKey);
+      final user = await service.getUser();
+      final hosts = await service.getHosts();
       await _storageService.saveApiKey(apiKey);
+
+      state = state.copyWith(
+        isLoading: false,
+        allDebridService: service,
+        apiKey: apiKey,
+        user: user,
+        hosts: hosts,
+      );
       return true;
     } catch (e) {
-      _error = e.toString();
+      state = state.copyWith(error: e.toString(), isLoading: false);
       return false;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  Future<void> _initializeWithApiKey(String apiKey, {bool fetchRemote = true}) async {
-    _allDebridService = AllDebridService(apiKey: apiKey);
-
-    if (fetchRemote) {
-      _user = await _allDebridService!.getUser();
-      _hosts = await _allDebridService!.getHosts();
     }
   }
 
   /// Fetch user + hosts in background without blocking init.
-  Future<void> _fetchRemoteDataInBackground() async {
-    if (_allDebridService == null) return;
+  Future<void> _fetchRemoteDataInBackground(AllDebridService service) async {
     try {
-      final user = await _allDebridService!.getUser();
-      final hosts = await _allDebridService!.getHosts();
-      _user = user;
-      _hosts = hosts;
-      notifyListeners();
+      final user = await service.getUser();
+      final hosts = await service.getHosts();
+      state = state.copyWith(user: user, hosts: hosts);
     } catch (e) {
       // Non-fatal: app already showed, just missing user info
     }
   }
 
   Future<void> refreshUser() async {
-    if (_allDebridService == null) return;
+    if (state.allDebridService == null) return;
 
-    _isLoading = true;
-    debugPrint('[AppProvider] notifyListeners from refreshUser (start)');
-    notifyListeners();
+    state = state.copyWith(isLoading: true);
+    debugPrint('[AppProvider] State update from refreshUser (start)');
 
     try {
-      _user = await _allDebridService!.getUser();
-      _error = null;
+      final user = await state.allDebridService!.getUser();
+      state = state.copyWith(user: user, error: null, isLoading: false);
     } catch (e) {
-      _error = e.toString();
-    } finally {
-      _isLoading = false;
-      debugPrint('[AppProvider] notifyListeners from refreshUser (done)');
-      notifyListeners();
+      state = state.copyWith(error: e.toString(), isLoading: false);
     }
   }
 
   Future<void> refreshHosts() async {
-    if (_allDebridService == null) return;
+    if (state.allDebridService == null) return;
 
     try {
-      _hosts = await _allDebridService!.getHosts();
-      notifyListeners();
+      final hosts = await state.allDebridService!.getHosts();
+      state = state.copyWith(hosts: hosts);
     } catch (e) {
-      _error = e.toString();
-      notifyListeners();
+      state = state.copyWith(error: e.toString());
     }
   }
 
   Future<void> logout() async {
     await _storageService.clearApiKey();
-    _allDebridService = null;
-    _user = null;
-    _hosts = null;
-    _error = null;
-    notifyListeners();
+    state = AppState(
+      routeObserver: state.routeObserver,
+      isDarkMode: state.isDarkMode,
+      primaryColor: state.primaryColor,
+    );
   }
 
   void clearError() {
-    _error = null;
-    notifyListeners();
+    state = state.copyWith(error: null);
   }
 
   int getRating(String id) {
-    return _ratings[id] ?? 0;
+    return state.ratings[id] ?? 0;
   }
 
   Future<void> setRating(String id, int rating) async {
+    final ratings = Map<String, int>.from(state.ratings);
     if (rating == 0) {
-      _ratings.remove(id);
+      ratings.remove(id);
     } else {
-      _ratings[id] = rating;
+      ratings[id] = rating;
     }
-    await _storageService.saveSetting('ratings', jsonEncode(_ratings));
-    debugPrint('[AppProvider] notifyListeners from setRating');
-    notifyListeners();
+    await _storageService.saveSetting('ratings', jsonEncode(ratings));
+    debugPrint('[AppProvider] State update from setRating');
+    state = state.copyWith(ratings: ratings);
   }
 }
+
+// Storage service provider (to be overridden in main.dart)
+final storageServiceProvider = Provider<StorageService>(
+  (ref) => throw UnimplementedError(
+    'storageServiceProvider must be overridden',
+  ),
+);
+
+// Provider definition
+final appNotifierProvider = NotifierProvider<AppNotifier, AppState>(() {
+  return AppNotifier();
+});

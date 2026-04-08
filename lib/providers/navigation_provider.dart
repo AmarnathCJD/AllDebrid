@@ -1,14 +1,16 @@
-import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class NavigationProvider extends ChangeNotifier {
-  int _currentIndex = 0;
-
-  int get currentIndex => _currentIndex;
+class NavigationNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
 
   void setIndex(int index) {
-    if (_currentIndex != index) {
-      _currentIndex = index;
-      notifyListeners();
+    if (state != index) {
+      state = index;
     }
   }
 }
+
+final navigationNotifierProvider = NotifierProvider<NavigationNotifier, int>(() {
+  return NavigationNotifier();
+});

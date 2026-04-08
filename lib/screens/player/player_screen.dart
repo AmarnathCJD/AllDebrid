@@ -5,9 +5,9 @@ import 'package:alldebrid_app/services/tg_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import '../../providers/riverpod_compat.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -28,7 +28,7 @@ import '../../services/wyzie_service.dart';
 import '../../widgets/widgets.dart';
 import 'package:hugeicons/hugeicons.dart';
 
-class PlayerScreen extends StatefulWidget {
+class PlayerScreen extends ConsumerStatefulWidget {
   final String url;
   final String? title;
   final bool isLocal;
@@ -69,10 +69,10 @@ class PlayerScreen extends StatefulWidget {
   final List<VideoCaption>? initialCaptions;
 
   @override
-  State<PlayerScreen> createState() => _PlayerScreenState();
+  ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen>
+class _PlayerScreenState extends ConsumerState<PlayerScreen>
     with WidgetsBindingObserver {
   late final Player _player;
   late final VideoController _controller;
@@ -157,7 +157,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   static const _pipChannel = MethodChannel('com.alldebrid/pip');
 
   void _setNativePipEnabled(bool enabled) {
-    _pipChannel.invokeMethod('setPipEnabled', {'enabled': enabled});
+    unawaited(_pipChannel.invokeMethod('setPipEnabled', {'enabled': enabled}));
   }
 
   // Subtitle styling
@@ -202,7 +202,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   void _showEpisodesSheet() {
-    showModalBottomSheet(
+    unawaited(showModalBottomSheet(
       context: context,
       useSafeArea: false,
       isScrollControlled: true,
@@ -333,7 +333,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           const SizedBox(height: 8),
         ],
       ),
-    );
+    ));
   }
 
   @override
@@ -346,11 +346,12 @@ class _PlayerScreenState extends State<PlayerScreen>
       _currentProvider = widget.provider!;
     }
 
-    SystemChrome.setPreferredOrientations([
+    unawaited(SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
-    ]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    ]));
+    unawaited(
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
 
     _pipChannel.setMethodCallHandler((call) async {
       if (call.method == 'onPipChanged') {
@@ -365,7 +366,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     });
 
     if (widget.mediaItem != null) {
-      ImdbService().addToRecents(widget.mediaItem!);
+      unawaited(ImdbService().addToRecents(widget.mediaItem!));
     }
 
     _setNativePipEnabled(true);
@@ -419,11 +420,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     _currentSources = widget.sources ?? [];
     _screenshotController = ScreenshotController();
 
-    _initPlayer();
+    unawaited(_initPlayer());
     _loadSubtitleSettings();
     _resetControlsTimer();
-    _initBrightness();
-    _initCast();
+    unawaited(_initBrightness());
+    unawaited(_initCast());
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -496,8 +497,9 @@ class _PlayerScreenState extends State<PlayerScreen>
       'subs_${_currentTitle?.hashCode ?? widget.url.hashCode}';
 
   Future<void> _loadPersistedSubtitles() async {
-    final provider = context.read<AppProvider>();
-    final subsJson = provider.getSetting<List<dynamic>>(_subtitlesStorageKey);
+    final subsJson = ref
+        .read(appNotifierProvider.notifier)
+        .getSetting<List<dynamic>>(_subtitlesStorageKey);
     if (subsJson != null) {
       for (final json in subsJson) {
         try {
@@ -515,7 +517,6 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Future<void> _savePersistedSubtitles() async {
-    final provider = context.read<AppProvider>();
     final subsToSave = _externalSubtitles.map((s) {
       // Extract path from URI
       final path = Uri.parse(s.uri).toFilePath();
@@ -525,7 +526,9 @@ class _PlayerScreenState extends State<PlayerScreen>
         language: s.language,
       ).toJson();
     }).toList();
-    await provider.saveSetting(_subtitlesStorageKey, subsToSave);
+    await ref
+        .read(appNotifierProvider.notifier)
+        .saveSetting(_subtitlesStorageKey, subsToSave);
   }
 
   Future<void> _removePersistedSubtitle(String uri) async {
@@ -541,8 +544,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Future<void> _initPlayer() async {
-    final provider = context.read<AppProvider>();
-    final savedPosMs = provider.getSetting<int>(_storageKey);
+    final savedPosMs =
+        ref.read(appNotifierProvider.notifier).getSetting<int>(_storageKey);
     final start =
         savedPosMs != null ? Duration(milliseconds: savedPosMs) : Duration.zero;
 
@@ -572,7 +575,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       } catch (_) {}
     }
 
-    _player.setVolume(0.0);
+    await _player.setVolume(0.0);
 
     await _player.open(
         Media(
@@ -619,7 +622,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     if (engSub != null) {
       _selectedExternalSubtitleUri = engSub.uri;
-      _player.setSubtitleTrack(SubtitleTrack.uri(engSub.uri,
+      await _player.setSubtitleTrack(SubtitleTrack.uri(engSub.uri,
           title: engSub.title, language: engSub.language));
     }
 
@@ -652,7 +655,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       }
     }
 
-    _player.setVolume(_volumeBoost);
+    await _player.setVolume(_volumeBoost);
 
     if (mounted) setState(() => _isReady = true);
 
@@ -670,7 +673,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     final currentPos = _player.state.position.inMilliseconds;
     final duration = _player.state.duration.inMilliseconds;
     if (currentPos > 5000) {
-      await context.read<AppProvider>().saveSetting(_storageKey, currentPos);
+      await ref
+          .read(appNotifierProvider.notifier)
+          .saveSetting(_storageKey, currentPos);
       if (widget.mediaItem != null) {
         await ImdbService().saveWatchProgress(
           widget.mediaItem!,
@@ -682,8 +687,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   void _loadSubtitleSettings() {
-    final provider = context.read<AppProvider>();
-    final colorHex = provider.getSetting<int>('subtitle_color');
+    final colorHex = ref
+        .read(appNotifierProvider.notifier)
+        .getSetting<int>('subtitle_color');
     if (colorHex != null) {
       setState(() {
         _subtitleColor = Color(colorHex);
@@ -693,7 +699,12 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   void _setSubtitleColor(Color color) {
     setState(() => _subtitleColor = color);
-    context.read<AppProvider>().saveSetting('subtitle_color', color.toARGB32());
+    unawaited(
+      ref.read(appNotifierProvider.notifier).saveSetting(
+            'subtitle_color',
+            color.toARGB32(),
+          ),
+    );
   }
 
   void _resetControlsTimer() {
@@ -710,8 +721,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   void _setVolumeBoost(double value) {
     setState(() {
       _volumeBoost = value;
-      _player.setVolume(value);
     });
+    unawaited(_player.setVolume(value));
   }
 
   void _adjustSync(Duration delta) {
@@ -758,7 +769,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       _sleepTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
         if (_sleepMinutesRemaining <= 1) {
           timer.cancel();
-          _player.pause();
+          unawaited(_player.pause());
           if (mounted) Navigator.pop(context);
         } else {
           setState(() {
@@ -775,11 +786,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     final newPos = _player.state.position + delta;
     final duration = _player.state.duration;
     if (newPos < Duration.zero) {
-      _player.seek(Duration.zero);
+      unawaited(_player.seek(Duration.zero));
     } else if (newPos > duration) {
-      _player.seek(duration);
+      unawaited(_player.seek(duration));
     } else {
-      _player.seek(newPos);
+      unawaited(_player.seek(newPos));
     }
 
     if (delta.isNegative) {
@@ -851,9 +862,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   void _showCastDialog() {
-    _discoverCastDevices();
+    unawaited(_discoverCastDevices());
 
-    showDialog(
+    unawaited(showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
@@ -1030,7 +1041,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           ],
         ),
       ),
-    );
+    ));
   }
 
   dynamic _getDeviceIcon(String type) {
@@ -1141,7 +1152,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   void _showPlaybackSettings() {
-    showDialog(
+    unawaited(showDialog(
       context: context,
       builder: (context) => _PlaybackSettingsDialog(
         currentSpeed: _playbackSpeed,
@@ -1161,13 +1172,13 @@ class _PlayerScreenState extends State<PlayerScreen>
         onSelectProvider: _showProviderSelector,
         showStats: _showStats,
         onToggleStats: _toggleStats,
-        onShareLink: () => Share.share(widget.url),
+        onShareLink: () => unawaited(Share.share(widget.url)),
       ),
-    );
+    ));
   }
 
   void _showSpeedSelector() {
-    showDialog(
+    unawaited(showDialog(
       context: context,
       barrierDismissible: true,
       builder: (context) => GestureDetector(
@@ -1226,7 +1237,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                                       : Colors.white.withValues(alpha: 0.15),
                                   width: 1.2,
                                 ),
-                                boxShadow: [],
+                                boxShadow: const [],
                               ),
                               child: Text(
                                 '${speed}x',
@@ -1256,7 +1267,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           ),
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildStatsOverlay() {
@@ -1321,9 +1332,10 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   @override
   void dispose() {
-    _savePosition();
+    unawaited(_savePosition());
     _savePositionTimer?.cancel();
     _controlsTimer?.cancel();
+    _sleepTimer?.cancel();
     _resumeNotifTimer?.cancel();
     _notificationTimer?.cancel();
     _doubleTapTimer?.cancel();
@@ -1340,15 +1352,15 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     _player.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    SystemChrome.setPreferredOrientations([
+    unawaited(SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
-    ]);
+    ]));
 
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    ScreenBrightness.instance.resetApplicationScreenBrightness();
+    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+    unawaited(ScreenBrightness.instance.resetApplicationScreenBrightness());
     _setNativePipEnabled(false);
     super.dispose();
   }
@@ -1359,7 +1371,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       case AppLifecycleState.resumed:
         if (_player.state.duration > Duration.zero && !_isCasting) {
           if (_wasPlayingBeforePause) {
-            _player.play();
+            unawaited(_player.play());
           }
         }
         break;
@@ -1442,9 +1454,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                             Animate(
                               effects: [
                                 FadeEffect(duration: 800.ms),
-                                ScaleEffect(
-                                    begin: const Offset(0.8, 0.8),
-                                    end: const Offset(1.0, 1.0)),
+                                const ScaleEffect(
+                                    begin: Offset(0.8, 0.8),
+                                    end: Offset(1.0, 1.0)),
                               ],
                               child: const SizedBox(
                                 width: 48,
@@ -2167,7 +2179,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     final newUrl = sources.first.url;
     Map<String, String>? headers = sources.first.headers ?? widget.httpHeaders;
 
-    _savePosition();
+    unawaited(_savePosition());
     _positionSubscription?.cancel();
     _positionSubscription = null;
     _autoPlayCountdownTimer?.cancel();
@@ -2208,7 +2220,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       });
     }
 
-    _player.setVolume(0.0);
+    await _player.setVolume(0.0);
     await _player.open(
         Media(newUrl, httpHeaders: headers, extras: {
           'title': _currentTitle ?? 'Video',
@@ -2219,7 +2231,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         }),
         play: true);
 
-    _player.setVolume(_volumeBoost);
+    await _player.setVolume(_volumeBoost);
     if (mounted) setState(() => _isReady = true);
 
     // Re-init position listener
@@ -2585,10 +2597,10 @@ class _PlayerScreenState extends State<PlayerScreen>
                                         },
                                         onChangeEnd: (v) {
                                           HapticFeedback.mediumImpact();
-                                          _player.seek(Duration(
+                                          unawaited(_player.seek(Duration(
                                               milliseconds:
                                                   (v * dur.inMilliseconds)
-                                                      .toInt()));
+                                                      .toInt())));
                                           setState(() {
                                             _isSliderDragging = false;
                                             _dragSeekTime = null;
@@ -2625,7 +2637,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                         ),
                         child: IconButton(
                           onPressed: () => _showTrackSelector(),
-                          icon: HugeIcon(
+                          icon: const HugeIcon(
                             icon: HugeIcons.strokeRoundedSubtitle,
                             color: Colors.white,
                             size: 22.0,
@@ -2668,12 +2680,12 @@ class _PlayerScreenState extends State<PlayerScreen>
                       IconButton(
                         onPressed: () {
                           HapticFeedback.selectionClick();
-                          _player.seek(_player.state.position -
-                              const Duration(seconds: 10));
+                          unawaited(_player.seek(_player.state.position -
+                              const Duration(seconds: 10)));
                           _resetControlsTimer();
                         },
                         iconSize: 42,
-                        icon: HugeIcon(
+                        icon: const HugeIcon(
                             icon: HugeIcons.strokeRoundedGoBackward10Sec,
                             color: Colors.white,
                             size: 24.0),
@@ -2710,8 +2722,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                       IconButton(
                         onPressed: () {
                           HapticFeedback.selectionClick();
-                          _player.seek(_player.state.position +
-                              const Duration(seconds: 10));
+                          unawaited(_player.seek(_player.state.position +
+                              const Duration(seconds: 10)));
                           _resetControlsTimer();
                         },
                         iconSize: 42,
@@ -2737,7 +2749,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                         ),
                         child: IconButton(
                           onPressed: _cycleFit,
-                          icon: HugeIcon(
+                          icon: const HugeIcon(
                             icon: HugeIcons.strokeRoundedCrop,
                             color: Colors.white,
                             size: 22.0,
@@ -2756,7 +2768,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                         ),
                         child: IconButton(
                           onPressed: _showPlaybackSettings,
-                          icon: HugeIcon(
+                          icon: const HugeIcon(
                             icon: HugeIcons.strokeRoundedSettings01,
                             color: Colors.white,
                             size: 22.0,
@@ -2953,7 +2965,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           RegExp(r'_(1080p|720p|480p|270p)\.mp4'), '_$newQuality.mp4');
     }
 
-    _player.setVolume(0.0);
+    await _player.setVolume(0.0);
 
     // Load new quality
     await _player.open(
@@ -2975,7 +2987,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     if (engSub != null) {
       _selectedExternalSubtitleUri = engSub.uri;
-      _player.setSubtitleTrack(SubtitleTrack.uri(engSub.uri,
+      await _player.setSubtitleTrack(SubtitleTrack.uri(engSub.uri,
           title: engSub.title, language: engSub.language));
     }
 
@@ -2989,7 +3001,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (!wasPlaying) {
       await _player.pause();
     }
-    _player.setVolume(_volumeBoost);
+    await _player.setVolume(_volumeBoost);
 
     setState(() => _currentQuality = newQuality);
 
@@ -3026,12 +3038,15 @@ class _PlayerScreenState extends State<PlayerScreen>
     // Extract codec/format extras
     final extras = <String>[];
     if (q.contains('HDR')) extras.add('HDR');
-    if (q.contains('HEVC') || q.contains('H.265') || q.contains('X265'))
+    if (q.contains('HEVC') || q.contains('H.265') || q.contains('X265')) {
       extras.add('HEVC');
+    }
     if (q.contains('H.264') ||
         q.contains('H264') ||
         q.contains('X264') ||
-        q.contains('AVC')) extras.add('H.264');
+        q.contains('AVC')) {
+      extras.add('H.264');
+    }
     if (q.contains('DOLBY') || q.contains('DV')) extras.add('Dolby');
 
     if (res != null) {
@@ -3054,7 +3069,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       return;
     }
 
-    showDialog(
+    unawaited(showDialog(
       context: context,
       builder: (context) => Dialog(
         backgroundColor: const Color(0xFF151515).withValues(alpha: 0.85),
@@ -3084,7 +3099,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     ),
                     GestureDetector(
                       onTap: () => Navigator.pop(context),
-                      child: Icon(Icons.close_rounded,
+                      child: const Icon(Icons.close_rounded,
                           color: Colors.white54, size: 20),
                     ),
                   ],
@@ -3170,11 +3185,11 @@ class _PlayerScreenState extends State<PlayerScreen>
           ),
         ),
       ),
-    );
+    ));
   }
 
   void _showTrackSelector() {
-    showDialog(
+    unawaited(showDialog(
       context: context,
       builder: (_) => _UnifiedTrackSelector(
         player: _player,
@@ -3201,12 +3216,12 @@ class _PlayerScreenState extends State<PlayerScreen>
           if (mounted) Navigator.pop(context);
         },
       ),
-    );
+    ));
   }
 
   Future<void> _applyExternalSubtitle(ExternalSubtitle subtitle) async {
     _selectedExternalSubtitleUri = subtitle.uri;
-    _player.setSubtitleTrack(
+    await _player.setSubtitleTrack(
       SubtitleTrack.uri(
         subtitle.uri,
         title: subtitle.title,
@@ -3301,7 +3316,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   void _showProviderSelector() {
-    showDialog(
+    unawaited(showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.cardColor,
@@ -3321,7 +3336,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildProviderOption(String name) {
@@ -3432,7 +3447,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         // Save old position first?
         final oldPos = _player.state.position;
 
-        _player.setVolume(0.0);
+        await _player.setVolume(0.0);
 
         await _player.open(
             Media(newSources.first.url, httpHeaders: newSources.first.headers),
@@ -3458,7 +3473,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
         if (engSub != null) {
           _selectedExternalSubtitleUri = engSub.uri;
-          _player.setSubtitleTrack(SubtitleTrack.uri(engSub.uri,
+          await _player.setSubtitleTrack(SubtitleTrack.uri(engSub.uri,
               title: engSub.title, language: engSub.language));
         }
 
@@ -3466,7 +3481,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         await Future.delayed(const Duration(seconds: 1)); // Buffer
         await _player.seek(oldPos);
 
-        _player.setVolume(_volumeBoost);
+        await _player.setVolume(_volumeBoost);
 
         setState(() => _isReady = true);
 
@@ -3650,8 +3665,8 @@ class _UnifiedTrackSelectorState extends State<_UnifiedTrackSelector>
 
     if (widget.externalSubtitles.isNotEmpty) {
       items.add(
-        Padding(
-          padding: const EdgeInsets.only(top: 6, bottom: 8),
+        const Padding(
+          padding: EdgeInsets.only(top: 6, bottom: 8),
           child: Text(
             'External Subtitles',
             style: TextStyle(
@@ -3940,10 +3955,11 @@ class _UnifiedTrackSelectorState extends State<_UnifiedTrackSelector>
       isSelected: isSelected,
       onTap: () {
         if (type == 'audio') {
-          widget.player.setAudioTrack(track ?? AudioTrack.no());
+          unawaited(widget.player.setAudioTrack(track ?? AudioTrack.no()));
         } else {
           widget.onClearExternalSelection();
-          widget.player.setSubtitleTrack(track ?? SubtitleTrack.no());
+          unawaited(
+              widget.player.setSubtitleTrack(track ?? SubtitleTrack.no()));
         }
         Navigator.pop(context);
       },
@@ -4470,9 +4486,9 @@ class _SubtitleDownloadDialogState extends State<SubtitleDownloadDialog> {
                                               color: AppTheme.primaryColor,
                                               size: 18),
                                           const SizedBox(width: 10),
-                                          Text(
+                                          const Text(
                                             'Auto-matching via Wyzie',
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               color: AppTheme.textPrimary,
                                               fontSize: 13,
                                               fontWeight: FontWeight.w500,
@@ -4615,7 +4631,7 @@ class _SubtitleDownloadDialogState extends State<SubtitleDownloadDialog> {
                       // Content (Results / Languages / Empty)
                       if (_results.isNotEmpty ||
                           _selectedLanguages != null) ...[
-                        Divider(height: 1, color: AppTheme.borderColor),
+                        const Divider(height: 1, color: AppTheme.borderColor),
                         Expanded(
                           child: _buildContent(),
                         ),
